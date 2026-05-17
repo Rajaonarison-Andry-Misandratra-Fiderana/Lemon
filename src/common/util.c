@@ -1,4 +1,4 @@
-/* See LICENSE.dwm file for copyright and license details. */
+
 #include <fcntl.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -12,6 +12,7 @@
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
 
+/* Print a printf-style error message (appending perror if fmt ends in ':') and exit(1). */
 void die(const char *fmt, ...) {
 	va_list ap;
 
@@ -29,6 +30,7 @@ void die(const char *fmt, ...) {
 	exit(1);
 }
 
+/* Allocate zero-initialized memory and die() on failure, sparing callers null-checks. */
 void *ecalloc(size_t nmemb, size_t size) {
 	void *p;
 
@@ -37,6 +39,7 @@ void *ecalloc(size_t nmemb, size_t size) {
 	return p;
 }
 
+/* Mark fd as non-blocking via F_SETFL; logs and returns -1 on fcntl error. */
 int32_t fd_set_nonblock(int32_t fd) {
 	int32_t flags = fcntl(fd, F_GETFL);
 	if (flags < 0) {
@@ -63,6 +66,7 @@ struct regex_cache_entry {
 static struct regex_cache_entry regex_cache[REGEX_CACHE_SIZE];
 static uint64_t regex_cache_clock = 0;
 
+/* Look up a compiled regex by pattern in the LRU cache, returning its match_data via out_md. */
 static pcre2_code *regex_cache_lookup(const char *pattern,
                                       pcre2_match_data **out_md) {
 	for (int32_t i = 0; i < REGEX_CACHE_SIZE; i++) {
@@ -76,6 +80,7 @@ static pcre2_code *regex_cache_lookup(const char *pattern,
 	return NULL;
 }
 
+/* Insert a compiled regex into the cache, evicting the least-recently-used slot if full. */
 static void regex_cache_insert(const char *pattern, pcre2_code *re,
                                pcre2_match_data *md) {
 	int32_t lru_idx = 0;
@@ -101,6 +106,7 @@ static void regex_cache_insert(const char *pattern, pcre2_code *re,
 	regex_cache[lru_idx].last_used = ++regex_cache_clock;
 }
 
+/* Return non-zero if str matches the PCRE2 pattern, compiling+caching it on first use. */
 int32_t regex_match(const char *pattern, const char *str) {
 	int32_t errnum;
 	PCRE2_SIZE erroffset;
@@ -130,10 +136,12 @@ int32_t regex_match(const char *pattern, const char *str) {
 	return ret >= 0;
 }
 
+/* Append node to the tail of a wl_list. */
 void wl_list_append(struct wl_list *list, struct wl_list *object) {
 	wl_list_insert(list->prev, object);
 }
 
+/* Return the current CLOCK_MONOTONIC time as milliseconds (truncated to uint32_t). */
 uint32_t get_now_in_ms(void) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
@@ -141,6 +149,7 @@ uint32_t get_now_in_ms(void) {
 	return timespec_to_ms(&now);
 }
 
+/* Convert a struct timespec into milliseconds as a uint32_t. */
 uint32_t timespec_to_ms(struct timespec *ts) {
 	return (uint32_t)ts->tv_sec * 1000 + (uint32_t)ts->tv_nsec / 1000000;
 }
@@ -149,22 +158,26 @@ static struct timespec frame_clock_cached_ts;
 static uint32_t frame_clock_cached_ms;
 static bool frame_clock_cached_valid = false;
 
+/* Snapshot the monotonic clock once per frame so subsequent queries are O(1) and consistent. */
 void frame_clock_begin(void) {
 	clock_gettime(CLOCK_MONOTONIC, &frame_clock_cached_ts);
 	frame_clock_cached_ms = timespec_to_ms(&frame_clock_cached_ts);
 	frame_clock_cached_valid = true;
 }
 
+/* Invalidate the per-frame cached clock so the next query re-reads the OS clock. */
 void frame_clock_end(void) {
 	frame_clock_cached_valid = false;
 }
 
+/* Return cached frame time in ms if a frame is in progress; otherwise fall back to live clock. */
 uint32_t frame_now_ms(void) {
 	if (frame_clock_cached_valid)
 		return frame_clock_cached_ms;
 	return get_now_in_ms();
 }
 
+/* Fill ts with cached frame timespec if available, else read CLOCK_MONOTONIC live. */
 void frame_clock_now_timespec(struct timespec *ts) {
 	if (frame_clock_cached_valid) {
 		*ts = frame_clock_cached_ts;
@@ -173,6 +186,7 @@ void frame_clock_now_timespec(struct timespec *ts) {
 	clock_gettime(CLOCK_MONOTONIC, ts);
 }
 
+/* Concatenate a NULL-terminated array of strings into a newly malloc'd string joined by sep. */
 char *join_strings(char *arr[], const char *sep) {
 	if (!arr || !arr[0]) {
 		char *empty = malloc(1);
@@ -204,6 +218,7 @@ char *join_strings(char *arr[], const char *sep) {
 	return result;
 }
 
+/* Like join_strings but appends suffix after every element, useful for building path lists. */
 char *join_strings_with_suffix(char *arr[], const char *suffix,
 							   const char *sep) {
 	if (!arr || !arr[0]) {
@@ -237,6 +252,7 @@ char *join_strings_with_suffix(char *arr[], const char *suffix,
 	return result;
 }
 
+/* printf-style formatter that returns a newly malloc'd string sized exactly to the result. */
 char *string_printf(const char *fmt, ...) {
 	va_list args;
 	va_start(args, fmt);

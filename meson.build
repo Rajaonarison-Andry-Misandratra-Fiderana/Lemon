@@ -4,29 +4,16 @@ project('lemon', ['c', 'cpp'],
 
 subdir('protocols')
 
-is_nixos = false
-os_release = run_command('cat', '/etc/os-release', check: false)
-if os_release.returncode() == 0
-    if os_release.stdout().contains('ID=nixos')
-        is_nixos = true
-    endif
-endif
-
 prefix = get_option('prefix')
 sysconfdir = get_option('sysconfdir')
 
-# 如果 sysconfdir 以 prefix 开头，去掉 prefix
-if sysconfdir.startswith(prefix) and not is_nixos
+# Strip prefix from sysconfdir if present, ensure absolute path
+if sysconfdir.startswith(prefix)
   sysconfdir = sysconfdir.substring(prefix.length())
-  # 确保 sysconfdir 是绝对路径
   if not sysconfdir.startswith('/')
     sysconfdir = '/' + sysconfdir
   endif
 endif
-
-# 打印调试信息，确认 sysconfdir 的值
-# message('prefix: ' + prefix)
-# message('sysconfdir: ' + sysconfdir)
 
 cc = meson.get_compiler('c')
 libm = cc.find_library('m')

@@ -1,3 +1,4 @@
+/* Set the initial slide-in geometry for a client appearing on the new tag. */
 void set_tagin_animation(Monitor *m, Client *c) {
 	if (c->animation.running) {
 		c->animainit_geom.x = c->animation.current.x;
@@ -39,6 +40,7 @@ void set_tagin_animation(Monitor *m, Client *c) {
 	}
 }
 
+/* Make a client visible on the new tag, optionally animating its slide-in. */
 void set_arrange_visible(Monitor *m, Client *c, bool want_animation) {
 
 	if (!c->is_clip_to_hide || !ISTILED(c) || !is_scroller_layout(c->mon)) {
@@ -64,6 +66,7 @@ void set_arrange_visible(Monitor *m, Client *c, bool want_animation) {
 	resize(c, c->geom, 0);
 }
 
+/* Set the off-screen destination geometry for a client sliding out of the previous tag. */
 void set_tagout_animation(Monitor *m, Client *c) {
 
 	if ((c->isglobal || c->isunglobal) ||
@@ -102,6 +105,7 @@ void set_tagout_animation(Monitor *m, Client *c) {
 	}
 }
 
+/* Hide a client from the old tag, animating its slide-out or disabling it outright. */
 void set_arrange_hidden(Monitor *m, Client *c, bool want_animation) {
 
 	if ((c->tags & (1 << (m->pertag->prevtag - 1))) &&

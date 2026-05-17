@@ -9,6 +9,7 @@ struct tearing_controller {
 struct wlr_tearing_control_manager_v1 *tearing_control;
 struct wl_listener tearing_new_object;
 
+/* Listener: tearing-control set_hint — copy the client's tearing hint onto its Client struct. */
 static void handle_controller_set_hint(struct wl_listener *listener,
 									   void *data) {
 	struct tearing_controller *controller =
@@ -18,17 +19,12 @@ static void handle_controller_set_hint(struct wl_listener *listener,
 	toplevel_from_wlr_surface(controller->tearing_control->surface, &c, NULL);
 
 	if (c) {
-		/*
-		 * tearing_control->current is actually an enum:
-		 * WP_TEARING_CONTROL_V1_PRESENTATION_HINT_VSYNC = 0
-		 * WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC = 1
-		 *
-		 * Using it as a bool here allows us to not ship the XML.
-		 */
+		
 		c->tearing_hint = controller->tearing_control->current;
 	}
 }
 
+/* Listener: tearing-control destroyed — unhook listeners and free the controller wrapper. */
 static void handle_controller_destroy(struct wl_listener *listener,
 									  void *data) {
 	struct tearing_controller *controller =
@@ -38,6 +34,7 @@ static void handle_controller_destroy(struct wl_listener *listener,
 	free(controller);
 }
 
+/* Listener: new tearing-control object — allocate a controller and hook its set_hint/destroy events. */
 void handle_tearing_new_object(struct wl_listener *listener, void *data) {
 	struct wlr_tearing_control_v1 *new_tearing_control = data;
 
@@ -58,20 +55,19 @@ void handle_tearing_new_object(struct wl_listener *listener, void *data) {
 	wl_signal_add(&new_tearing_control->events.destroy, &controller->destroy);
 }
 
+/* Decide whether the next frame on this monitor is allowed to tear, based on config and client hint. */
 bool check_tearing_frame_allow(Monitor *m) {
-	/* never allow tearing when disabled */
+	
 	if (!config.allow_tearing) {
 		return false;
 	}
 
 	Client *c = selmon->sel;
 
-	/* tearing is only allowed for the output with the active client */
 	if (!c || c->mon != m) {
 		return false;
 	}
 
-	/* allow tearing for any window when requested or forced */
 	if (config.allow_tearing == TEARING_ENABLED) {
 		if (c->force_tearing == STATE_UNSPECIFIED) {
 			return c->tearing_hint;
@@ -80,50 +76,44 @@ bool check_tearing_frame_allow(Monitor *m) {
 		}
 	}
 
-	/* remaining tearing options apply only to full-screen windows */
 	if (!c->isfullscreen) {
 		return false;
 	}
 
 	if (c->force_tearing == STATE_UNSPECIFIED) {
-		/* honor the tearing hint or the fullscreen-force preference */
+		
 		return c->tearing_hint ||
 			   config.allow_tearing == TEARING_FULLSCREEN_ONLY;
 	}
 
-	/* honor tearing as requested by action */
 	return c->force_tearing == STATE_ENABLED;
 }
 
+/* Build and commit a scene output state, falling back to a non-tearing commit if tearing fails. */
 bool custom_wlr_scene_output_commit(struct wlr_scene_output *scene_output,
 									struct wlr_output_state *state) {
 	struct wlr_output *wlr_output = scene_output->output;
 	Monitor *m = wlr_output->data;
 
-	// 检查是否需要帧
 	if (!wlr_scene_output_needs_frame(scene_output)) {
 		wlr_log(WLR_DEBUG, "No frame needed for output %s", wlr_output->name);
 		return true;
 	}
 
-	// 构建输出状态
 	if (!wlr_scene_output_build_state(scene_output, state, NULL)) {
 		wlr_log(WLR_ERROR, "Failed to build output state for %s",
 				wlr_output->name);
 		return false;
 	}
 
-	// 测试撕裂翻页
 	if (state->tearing_page_flip) {
 		if (!wlr_output_test_state(wlr_output, state)) {
 			state->tearing_page_flip = false;
 		}
 	}
 
-	// 尝试提交
 	bool committed = wlr_output_commit_state(wlr_output, state);
 
-	// 如果启用撕裂翻页但提交失败，重试禁用撕裂翻页
 	if (!committed && state->tearing_page_flip) {
 		wlr_log(WLR_DEBUG, "Retrying commit without tearing for %s",
 				wlr_output->name);
@@ -131,7 +121,6 @@ bool custom_wlr_scene_output_commit(struct wlr_scene_output *scene_output,
 		committed = wlr_output_commit_state(wlr_output, state);
 	}
 
-	// 处理状态清理
 	if (committed) {
 		wlr_log(WLR_DEBUG, "Successfully committed output %s",
 				wlr_output->name);
@@ -141,7 +130,7 @@ bool custom_wlr_scene_output_commit(struct wlr_scene_output *scene_output,
 		}
 	} else {
 		wlr_log(WLR_ERROR, "Failed to commit output %s", wlr_output->name);
-		// 即使提交失败，也清理状态避免积累
+		
 		if (state == &m->pending) {
 			wlr_output_state_finish(&m->pending);
 			wlr_output_state_init(&m->pending);
@@ -152,6 +141,7 @@ bool custom_wlr_scene_output_commit(struct wlr_scene_output *scene_output,
 	return true;
 }
 
+/* Commit a tearing page-flip for this monitor when a frame is needed. */
 void apply_tear_state(Monitor *m) {
 	if (wlr_scene_output_needs_frame(m->scene_output)) {
 		wlr_output_state_init(&m->pending);

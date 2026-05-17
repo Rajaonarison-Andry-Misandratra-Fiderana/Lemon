@@ -1,14 +1,17 @@
 #include "wlr/util/log.h"
+/* Compute the client's content size (current animation geom minus borders). */
 void client_actual_size(Client *c, int32_t *width, int32_t *height) {
 	*width = c->animation.current.width - 2 * (int32_t)c->bw;
 
 	*height = c->animation.current.height - 2 * (int32_t)c->bw;
 }
 
+/* Resize a scene rect, clamping width and height to non-negative values. */
 void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height) {
 	wlr_scene_rect_set_size(rect, GEZERO(width), GEZERO(height));
 }
 
+/* Determine which corners of the client should be rounded based on monitor edge clipping. */
 enum corner_location set_client_corner_location(Client *c) {
 	enum corner_location current_corner_location = CORNER_LOCATION_ALL;
 	struct wlr_box target_geom =
@@ -30,6 +33,7 @@ enum corner_location set_client_corner_location(Client *c) {
 	return current_corner_location;
 }
 
+/* Return true if the monitor's current layout stacks clients horizontally (tile/deck). */
 bool is_horizontal_stack_layout(Monitor *m) {
 
 	if (m->pertag->curtag &&
@@ -40,6 +44,7 @@ bool is_horizontal_stack_layout(Monitor *m) {
 	return false;
 }
 
+/* Return true if the monitor's current layout is the right-tile horizontal stack. */
 bool is_horizontal_right_stack_layout(Monitor *m) {
 
 	if (m->pertag->curtag &&
@@ -49,6 +54,7 @@ bool is_horizontal_right_stack_layout(Monitor *m) {
 	return false;
 }
 
+/* Pick a forced slide-in direction for tiled clients based on layout and master configuration. */
 int32_t is_special_animation_rule(Client *c) {
 
 	if (is_scroller_layout(c->mon) && !c->isfloating) {
@@ -73,6 +79,7 @@ int32_t is_special_animation_rule(Client *c) {
 	}
 }
 
+/* Compute the client's initial geometry for its open animation (fade/zoom/slide). */
 void set_client_open_animation(Client *c, struct wlr_box geo) {
 	int32_t slide_direction;
 	int32_t horizontal, horizontal_value;
@@ -147,6 +154,7 @@ void set_client_open_animation(Client *c, struct wlr_box geo) {
 	}
 }
 
+/* Per-buffer callback that resizes snapshot buffers to the target close-animation size. */
 void snap_scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 									int32_t sy, void *data) {
 	BufferData *buffer_data = (BufferData *)data;
@@ -154,6 +162,7 @@ void snap_scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 								   buffer_data->height);
 }
 
+/* Per-buffer callback that scales surface buffers and applies corner radius during animation. */
 void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 							   int32_t sy, void *data) {
 	BufferData *buffer_data = (BufferData *)data;
@@ -226,6 +235,7 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 									   buffer_data->corner_location);
 }
 
+/* Apply scaling and corner-radius effects to every buffer in the client's surface tree. */
 void buffer_set_effect(Client *c, BufferData data) {
 
 	if (!c || c->iskilling)
@@ -249,6 +259,7 @@ void buffer_set_effect(Client *c, BufferData data) {
 								   scene_buffer_apply_effect, &data);
 }
 
+/* Position, size and clip the client's drop shadow to fit the current animation frame. */
 void client_draw_shadow(Client *c) {
 
 	if (c->iskilling || !client_surface(c)->mapped || c->isnoshadow)
@@ -346,6 +357,7 @@ void client_draw_shadow(Client *c) {
 	wlr_scene_shadow_set_clipped_region(c->shadow, clipped_region);
 }
 
+/* Show or hide the dwindle split-direction indicator bars for the client. */
 void apply_split_border(Client *c, bool hit_no_border) {
 
 	if (c->iskilling || !c->mon || !client_surface(c)->mapped)
@@ -384,7 +396,7 @@ void apply_split_border(Client *c, bool hit_no_border) {
 	}
 
 	struct wlr_box fullgeom = c->animation.current;
-	// 一但在GEZERO如果使用无符号，那么其他数据也会转换为无符号导致没有负数出错
+
 	int32_t bw = (int32_t)c->bw;
 
 	int32_t right_offset, bottom_offset, left_offset, top_offset;
@@ -437,6 +449,7 @@ void apply_split_border(Client *c, bool hit_no_border) {
 								border_right_y);
 }
 
+/* Lay out the client's border rectangle and corner radius matching the current animation frame. */
 void apply_border(Client *c) {
 	if (!c || c->iskilling || !client_surface(c)->mapped)
 		return;
@@ -467,7 +480,7 @@ void apply_border(Client *c) {
 	}
 
 	struct wlr_box clip_box = c->animation.current;
-	// 一但在GEZERO如果使用无符号，那么其他数据也会转换为无符号导致没有负数出错
+
 	int32_t bw = (int32_t)c->bw;
 
 	int32_t right_offset, bottom_offset, left_offset, top_offset;
@@ -536,6 +549,7 @@ void apply_border(Client *c) {
 	wlr_scene_rect_set_clipped_region(c->border, clipped_region);
 }
 
+/* Shrink the clip box and toggle visibility for clients sliding off-screen during tag transitions. */
 struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box) {
 	int32_t offsetx = 0, offsety = 0, offsetw = 0, offseth = 0;
 	struct ivec2 offset = {0, 0, 0, 0};
@@ -553,14 +567,8 @@ struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box) {
 	int32_t left_out_offset = GEZERO(c->mon->m.x - c->animation.current.x);
 	int32_t top_out_offset = GEZERO(c->mon->m.y - c->animation.current.y);
 
-	// 必须转换为int，否计算会没有负数导致判断错误
 	int32_t bw = (int32_t)c->bw;
 
-	/*
-	  计算窗口表面超出屏幕四个方向的偏差，避免窗口超出屏幕
-	  需要主要border超出屏幕的时候不计算如偏差之内而是
-	  要等窗口表面超出才开始计算偏差
-	*/
 	if (ISSCROLLTILED(c) || c->animation.tagining || c->animation.tagouted ||
 		c->animation.tagouting) {
 		if (left_out_offset > 0) {
@@ -582,7 +590,6 @@ struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box) {
 		}
 	}
 
-	// 窗口表面超出屏幕四个方向的偏差
 	offset.x = offsetx;
 	offset.y = offsety;
 	offset.width = offsetw;
@@ -600,6 +607,7 @@ struct ivec2 clip_to_hide(Client *c, struct wlr_box *clip_box) {
 	return offset;
 }
 
+/* Compute and display the drag-and-drop target area highlight for a client under the cursor. */
 void client_set_drop_area(Client *c) {
 	bool first_draw = false;
 	int32_t drop_direction = UNDIR;
@@ -625,7 +633,6 @@ void client_set_drop_area(Client *c) {
 	int32_t client_width = c->geom.width - 2 * bw;
 	int32_t client_height = c->geom.height - 2 * bw;
 
-	// 光标在窗口客户区内的相对坐标
 	double rel_x = cursor->x - c->geom.x - bw;
 	double rel_y = cursor->y - c->geom.y - bw;
 
@@ -758,6 +765,7 @@ void client_set_drop_area(Client *c) {
 	wlr_scene_rect_set_size(c->droparea, drop_box.width, drop_box.height);
 }
 
+/* Apply the current animation clip box, border, shadow and surface scaling to the client. */
 void client_apply_clip(Client *c, float factor) {
 
 	if (c->iskilling || !client_surface(c)->mapped)
@@ -795,11 +803,9 @@ void client_apply_clip(Client *c, float factor) {
 		return;
 	}
 
-	// 获取窗口动画实时位置矩形
 	int32_t width, height;
 	client_actual_size(c, &width, &height);
 
-	// 计算出除了边框的窗口实际剪切大小
 	struct wlr_box geometry;
 	client_get_geometry(c, &geometry);
 	clip_box = (struct wlr_box){
@@ -814,14 +820,11 @@ void client_apply_clip(Client *c, float factor) {
 		clip_box.y = 0;
 	}
 
-	// 检测窗口是否需要剪切超出屏幕部分，如果需要就调整实际要剪切的矩形
 	offset = clip_to_hide(c, &clip_box);
 
-	// 应用窗口装饰
 	apply_border(c);
 	client_draw_shadow(c);
 
-	// 如果窗口剪切区域已经剪切到0，则不渲染窗口表面
 	if (clip_box.width <= 0 || clip_box.height <= 0) {
 		should_render_client_surface = false;
 		wlr_scene_node_set_enabled(&c->scene_surface->node, false);
@@ -830,15 +833,12 @@ void client_apply_clip(Client *c, float factor) {
 		wlr_scene_node_set_enabled(&c->scene_surface->node, true);
 	}
 
-	// 不用在执行下面的窗口表面剪切和缩放等效果操作
 	if (!should_render_client_surface) {
 		return;
 	}
 
-	// 应用窗口表面剪切
 	wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip_box);
 
-	// 获取剪切后的表面的实际大小用于计算缩放
 	int32_t acutal_surface_width = geometry.width - offset.x - offset.width;
 	int32_t acutal_surface_height = geometry.height - offset.y - offset.height;
 
@@ -863,6 +863,7 @@ void client_apply_clip(Client *c, float factor) {
 	buffer_set_effect(c, buffer_data);
 }
 
+/* Advance one frame of a closing client's fade-out animation and destroy it when finished. */
 void fadeout_client_animation_next_tick(Client *c) {
 	if (!c)
 		return;
@@ -929,6 +930,7 @@ void fadeout_client_animation_next_tick(Client *c) {
 	}
 }
 
+/* Advance one frame of a client's running geometry animation and finalize when complete. */
 void client_animation_next_tick(Client *c) {
 	int32_t passed_time = frame_now_ms() - c->animation.time_started;
 	double animation_passed =
@@ -967,9 +969,6 @@ void client_animation_next_tick(Client *c) {
 
 	if (animation_passed >= 1.0) {
 
-		// clear the open action state
-		// To prevent him from being mistaken that
-		// it's still in the opening animation in resize
 		c->animation.action = MOVE;
 
 		c->animation.tagining = false;
@@ -988,16 +987,15 @@ void client_animation_next_tick(Client *c) {
 		surface =
 			pointer_c && pointer_c == c ? client_surface(pointer_c) : NULL;
 
-		// avoid game window force grab pointer in overview mode
 		if (surface && pointer_c == selmon->sel && !selmon->isoverview) {
 			wlr_seat_pointer_notify_enter(seat, surface, sx, sy);
 		}
 
-		// end flush in next frame, not the current frame
 		c->need_output_flush = false;
 	}
 }
 
+/* Create a snapshot-based fade-out client for a closing window and queue it for animation. */
 void init_fadeout_client(Client *c) {
 
 	if (!c->mon || client_is_unmanaged(c))
@@ -1035,9 +1033,6 @@ void init_fadeout_client(Client *c) {
 	fadeout_client->bw = c->bw;
 	fadeout_client->nofadeout = c->nofadeout;
 
-	// 这里snap节点的坐标设置是使用的相对坐标，所以不能加上原来坐标
-	// 这跟普通node有区别
-
 	fadeout_client->animation.initial.x = 0;
 	fadeout_client->animation.initial.y = 0;
 
@@ -1052,9 +1047,9 @@ void init_fadeout_client(Client *c) {
 		fadeout_client->current.y =
 			c->geom.y + c->geom.height / 2 > c->mon->m.y + c->mon->m.height / 2
 				? c->mon->m.height -
-					  (c->animation.current.y - c->mon->m.y) // down out
-				: c->mon->m.y - c->geom.height;				 // up out
-		fadeout_client->current.x = 0; // x无偏差，垂直划出
+					  (c->animation.current.y - c->mon->m.y)
+				: c->mon->m.y - c->geom.height;
+		fadeout_client->current.x = 0;
 	} else {
 		fadeout_client->current.y =
 			(fadeout_client->geom.height -
@@ -1074,12 +1069,12 @@ void init_fadeout_client(Client *c) {
 	wlr_scene_node_set_enabled(&fadeout_client->scene->node, true);
 	wl_list_insert(&fadeout_clients, &fadeout_client->fadeout_link);
 
-	// 请求刷新屏幕
 	request_fresh_all_monitors();
 }
 
+/* Promote pending geometry to current and start the animation if one is queued. */
 void client_commit(Client *c) {
-	c->current = c->pending; // 设置动画的结束位置
+	c->current = c->pending;
 
 	if (c->animation.should_animate) {
 		if (!c->animation.running) {
@@ -1089,14 +1084,14 @@ void client_commit(Client *c) {
 		c->animation.initial = c->animainit_geom;
 		c->animation.time_started = get_now_in_ms();
 
-		// 标记动画开始
 		c->animation.running = true;
 		c->animation.should_animate = false;
 	}
-	// 请求刷新屏幕
+
 	request_fresh_all_monitors();
 }
 
+/* Decide whether the client should animate to its pending state and then commit it. */
 void client_set_pending_state(Client *c) {
 
 	if (!c || c->iskilling)
@@ -1135,15 +1130,12 @@ void client_set_pending_state(Client *c) {
 		c->animation.duration = 0;
 	}
 
-	// 开始动画
 	client_commit(c);
 	c->dirty = true;
 }
 
+/* Apply a new geometry to a client, picking the correct animation kind and duration. */
 void resize(Client *c, struct wlr_box geo, int32_t interact) {
-
-	// 动画设置的起始函数，这里用来计算一些动画的起始值
-	// 动画起始位置大小是由于c->animainit_geom确定的
 
 	if (!c || !c->mon || !client_surface(c)->mapped)
 		return;
@@ -1157,18 +1149,17 @@ void resize(Client *c, struct wlr_box geo, int32_t interact) {
 	c->need_output_flush = true;
 	c->dirty = true;
 
-	// float_geom = c->geom;
 	bbox = (interact || c->isfloating || c->isfullscreen) ? &sgeom : &c->mon->w;
 
 	if (is_scroller_layout(c->mon) && (!c->isfloating || c == grabc)) {
 		c->geom = geo;
 		c->geom.width = MAX(1 + 2 * (int32_t)c->bw, c->geom.width);
 		c->geom.height = MAX(1 + 2 * (int32_t)c->bw, c->geom.height);
-	} else { // 这里会限制不允许窗口划出屏幕
+	} else {
 		c->geom = geo;
 		applybounds(
 			c,
-			bbox); // 去掉这个推荐的窗口大小,因为有时推荐的窗口特别大导致平铺异常
+			bbox);
 	}
 
 	if (!c->isnosizehint && !c->ismaximizescreen && !c->isfullscreen &&
@@ -1197,7 +1188,6 @@ void resize(Client *c, struct wlr_box geo, int32_t interact) {
 		c->animation.action = MOVE;
 	}
 
-	// 动画起始位置大小设置
 	if (c->animation.tagouting) {
 		c->animainit_geom = c->animation.current;
 	} else if (c->animation.tagining) {
@@ -1219,7 +1209,6 @@ void resize(Client *c, struct wlr_box geo, int32_t interact) {
 		c->fake_no_border = true;
 	}
 
-	// c->geom 是真实的窗口大小和位置，跟过度的动画无关，用于计算布局
 	c->configure_serial = client_set_size(c, c->geom.width - 2 * c->bw,
 										  c->geom.height - 2 * c->bw);
 
@@ -1241,8 +1230,7 @@ void resize(Client *c, struct wlr_box geo, int32_t interact) {
 		wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip);
 		return;
 	}
-	// 如果不是工作区切换时划出去的窗口，就让动画的结束位置，就是上面的真实位置和大小
-	// c->pending 决定动画的终点，一般在其他调用resize的函数的附近设置了
+
 	if (!c->animation.tagouting && !c->iskilling) {
 		c->pending = c->geom;
 	}
@@ -1264,12 +1252,12 @@ void resize(Client *c, struct wlr_box geo, int32_t interact) {
 		c->animainit_geom = c->geom;
 	}
 
-	// 开始应用动画设置
 	client_set_pending_state(c);
 
 	setborder_color(c);
 }
 
+/* Drive one fade-out animation tick for a snapshot client; returns true while animating. */
 bool client_draw_fadeout_frame(Client *c) {
 	if (!c)
 		return false;
@@ -1278,6 +1266,7 @@ bool client_draw_fadeout_frame(Client *c) {
 	return true;
 }
 
+/* Start the focus-gained animation that transitions opacity and border color towards focused state. */
 void client_set_focused_opacity_animation(Client *c) {
 	float *border_color = get_border_color(c);
 	wlr_scene_node_lower_to_bottom(&c->border->node);
@@ -1301,6 +1290,7 @@ void client_set_focused_opacity_animation(Client *c) {
 	c->focus_opacity_dirty = true;
 }
 
+/* Start the focus-lost animation that transitions opacity and border color towards unfocused state. */
 void client_set_unfocused_opacity_animation(Client *c) {
 	float *border_color = get_border_color(c);
 	wlr_scene_node_raise_to_top(&c->border->node);
@@ -1312,7 +1302,7 @@ void client_set_unfocused_opacity_animation(Client *c) {
 	c->opacity_animation.duration = config.animation_duration_focus;
 	memcpy(c->opacity_animation.target_border_color, border_color,
 		   sizeof(c->opacity_animation.target_border_color));
-	// Start opacity animation to unfocused
+
 	c->opacity_animation.target_opacity = c->unfocused_opacity;
 	c->opacity_animation.time_started = get_now_in_ms();
 
@@ -1325,12 +1315,11 @@ void client_set_unfocused_opacity_animation(Client *c) {
 	c->focus_opacity_dirty = true;
 }
 
+/* Advance focus/open opacity and border-color interpolation; returns true if a redraw is needed. */
 bool client_apply_focus_opacity(Client *c) {
-	// Animate focus transitions (opacity + border color)
+
 	float *border_color = get_border_color(c);
 
-	// Steady-state fast path: nothing animating, state already synced.
-	// Avoids per-frame memcpy + scene traversal across all clients.
 	if (!c->opacity_animation.running &&
 	    !(c->animation.running && c->animation.action == OPEN) &&
 	    !c->isfullscreen && !c->focus_opacity_dirty) {
@@ -1393,7 +1382,6 @@ bool client_apply_focus_opacity(Client *c) {
 				eased_progress;
 		client_set_opacity(c, c->opacity_animation.current_opacity);
 
-		// Animate border color
 		for (int32_t i = 0; i < 4; i++) {
 			c->opacity_animation.current_border_color[i] =
 				c->opacity_animation.initial_border_color[i] +
@@ -1426,6 +1414,7 @@ bool client_apply_focus_opacity(Client *c) {
 	return false;
 }
 
+/* Run one render-frame tick for the client: advance geometry and opacity animations as needed. */
 bool client_draw_frame(Client *c) {
 
 	if (!c || !client_surface(c)->mapped)

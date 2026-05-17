@@ -1,3 +1,4 @@
+/* Action: view the target tag (arg->ui), with optional toggle-back to previous tag when re-selecting current. */
 int32_t bind_to_view(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -31,13 +32,12 @@ int32_t bind_to_view(const Arg *arg) {
 	return 0;
 }
 
+/* Action: switch the active VT to arg->ui, pausing frame scheduling briefly across the change. */
 int32_t chvt(const Arg *arg) {
 	struct timespec ts;
 
-	// prevent the animation to rquest the new frame
 	allow_frame_scheduling = false;
 
-	// backup current tag and monitor name
 	if (selmon) {
 		chvt_backup_tag = selmon->pertag->curtag;
 		strncpy(chvt_backup_selmon, selmon->wlr_output->name,
@@ -46,17 +46,15 @@ int32_t chvt(const Arg *arg) {
 
 	wlr_session_change_vt(session, arg->ui);
 
-	// wait for DRM device to stabilize and ensure the session state is inactive
 	ts.tv_sec = 0;
-	ts.tv_nsec = 100000000; // 200ms
+	ts.tv_nsec = 100000000;
 	nanosleep(&ts, NULL);
 
-	// allow frame scheduling,
-	// because session state is now inactive, rendermon will not enter
 	allow_frame_scheduling = true;
 	return 1;
 }
 
+/* Action: create a new headless (virtual) output on the multi backend. */
 int32_t create_virtual_output(const Arg *arg) {
 
 	if (!wlr_backend_is_multi(backend)) {
@@ -76,6 +74,7 @@ int32_t create_virtual_output(const Arg *arg) {
 	return 0;
 }
 
+/* Action: destroy every headless (virtual) output currently attached. */
 int32_t destroy_all_virtual_output(const Arg *arg) {
 
 	if (!wlr_backend_is_multi(backend)) {
@@ -86,8 +85,7 @@ int32_t destroy_all_virtual_output(const Arg *arg) {
 	Monitor *m, *tmp;
 	wl_list_for_each_safe(m, tmp, &mons, link) {
 		if (wlr_output_is_headless(m->wlr_output)) {
-			// if(selmon == m)
-			//   selmon = NULL;
+
 			wlr_output_destroy(m->wlr_output);
 			wlr_log(WLR_INFO, "Virtual output destroyed");
 		}
@@ -95,11 +93,13 @@ int32_t destroy_all_virtual_output(const Arg *arg) {
 	return 0;
 }
 
+/* Action: reset inner/outer gaps to their configured default values. */
 int32_t defaultgaps(const Arg *arg) {
 	setgaps(config.gappoh, config.gappov, config.gappih, config.gappiv);
 	return 0;
 }
 
+/* Action: swap the focused client with the tiled neighbor in arg->i direction. */
 int32_t exchange_client(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -120,6 +120,7 @@ int32_t exchange_client(const Arg *arg) {
 	return 0;
 }
 
+/* Action: swap the focused client with the next/previous client in its scroller stack. */
 int32_t exchange_stack_client(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -138,6 +139,7 @@ int32_t exchange_stack_client(const Arg *arg) {
 	return 0;
 }
 
+/* Action: move focus to the client in arg->i direction (UP/DOWN/LEFT/RIGHT), optionally crossing tags or monitors. */
 int32_t focusdir(const Arg *arg) {
 	Client *c = NULL;
 	c = direction_select(arg);
@@ -159,6 +161,7 @@ int32_t focusdir(const Arg *arg) {
 	return 0;
 }
 
+/* Action: refocus the most recently focused client from the focus stack and switch to its tag. */
 int32_t focuslast(const Arg *arg) {
 
 	Client *c = NULL;
@@ -199,11 +202,13 @@ int32_t focuslast(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle the config flag that disables the trackpad. */
 int32_t toggle_trackpad_enable(const Arg *arg) {
 	config.disable_trackpad = !config.disable_trackpad;
 	return 0;
 }
 
+/* Action: move focus to the monitor in arg->i direction or matching arg->v spec, warping cursor if configured. */
 int32_t focusmon(const Arg *arg) {
 	Client *c = NULL;
 	Monitor *m = NULL;
@@ -244,8 +249,9 @@ int32_t focusmon(const Arg *arg) {
 	return 0;
 }
 
+/* Action: cycle focus to the next or previous client in the tiling stack. */
 int32_t focusstack(const Arg *arg) {
-	/* Focus the next or previous client (in tiling order) on selmon */
+
 	Client *sel = focustop(selmon);
 	Client *tc = NULL;
 
@@ -256,7 +262,6 @@ int32_t focusstack(const Arg *arg) {
 	} else {
 		tc = get_next_stack_client(sel, true);
 	}
-	/* If only one client is visible on selmon, then c == sel */
 
 	if (!tc)
 		return 0;
@@ -267,6 +272,7 @@ int32_t focusstack(const Arg *arg) {
 	return 0;
 }
 
+/* Action: adjust the number of master-area clients on the current tag by arg->i and re-arrange. */
 int32_t incnmaster(const Arg *arg) {
 	if (!arg || !selmon)
 		return 0;
@@ -276,6 +282,7 @@ int32_t incnmaster(const Arg *arg) {
 	return 0;
 }
 
+/* Action: add arg->i to every gap (inner h/v and outer h/v) on the current monitor. */
 int32_t incgaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -284,6 +291,7 @@ int32_t incgaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: add arg->i to both inner gaps (horizontal and vertical) only. */
 int32_t incigaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -292,6 +300,7 @@ int32_t incigaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: add arg->i to both outer gaps (horizontal and vertical) only. */
 int32_t incogaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -300,6 +309,7 @@ int32_t incogaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: add arg->i to inner horizontal gap only. */
 int32_t incihgaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -308,6 +318,7 @@ int32_t incihgaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: add arg->i to inner vertical gap only. */
 int32_t incivgaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -316,6 +327,7 @@ int32_t incivgaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: add arg->i to outer horizontal gap only. */
 int32_t incohgaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -324,6 +336,7 @@ int32_t incohgaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: add arg->i to outer vertical gap only. */
 int32_t incovgaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -332,6 +345,7 @@ int32_t incovgaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: change the master/stack split factor on the current tag by arg->f and re-arrange. */
 int32_t setmfact(const Arg *arg) {
 	float f;
 	Client *c = NULL;
@@ -354,6 +368,7 @@ int32_t setmfact(const Arg *arg) {
 	return 0;
 }
 
+/* Action: request the focused client to close. */
 int32_t killclient(const Arg *arg) {
 	Client *c = NULL;
 	if (!selmon)
@@ -365,6 +380,7 @@ int32_t killclient(const Arg *arg) {
 	return 0;
 }
 
+/* Action: begin interactive cursor move or resize of the client under the cursor, based on arg->ui (CurMove/CurResize). */
 int32_t moveresize(const Arg *arg) {
 	const char *cursors[] = {"nw-resize", "ne-resize", "sw-resize",
 							 "se-resize"};
@@ -377,7 +393,7 @@ int32_t moveresize(const Arg *arg) {
 		grabc = NULL;
 		return 0;
 	}
-	/* Float the window and tell motionnotify to grab it */
+
 	if (grabc->isfloating == 0 && arg->ui == CurMove) {
 		grabc->drag_to_tile = true;
 		exit_scroller_stack(grabc);
@@ -404,14 +420,13 @@ int32_t moveresize(const Arg *arg) {
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "grab");
 		break;
 	case CurResize:
-		/* Doesn't work for X11 output - the next absolute motion event
-		 * returns the cursor to where it started */
+
 		if (grabc->isfloating) {
 			rzcorner = config.drag_corner;
 			grabcx = (int)round(cursor->x);
 			grabcy = (int)round(cursor->y);
 			if (rzcorner == 4)
-				/* identify the closest corner index */
+
 				rzcorner = (grabcx - grabc->geom.x <
 									grabc->geom.x + grabc->geom.width - grabcx
 								? 0
@@ -438,6 +453,7 @@ int32_t moveresize(const Arg *arg) {
 	return 0;
 }
 
+/* Action: float and move the focused client to the (x,y) defined by arg->i / arg->i2 (absolute or delta per arg->ui/ui2). */
 int32_t movewin(const Arg *arg) {
 	Client *c = NULL;
 	if (!selmon)
@@ -478,11 +494,13 @@ int32_t movewin(const Arg *arg) {
 	return 0;
 }
 
+/* Action: terminate the Wayland display, exiting the compositor. */
 int32_t quit(const Arg *arg) {
 	wl_display_terminate(dpy);
 	return 0;
 }
 
+/* Action: resize the focused client by arg->i/arg->i2 (absolute or delta per arg->ui/ui2), handling tiled and floating modes. */
 int32_t resizewin(const Arg *arg) {
 	Client *c = NULL;
 	if (!selmon)
@@ -557,6 +575,7 @@ int32_t resizewin(const Arg *arg) {
 	return 0;
 }
 
+/* Action: restore the first minimized (non-named-scratchpad) client, or hide a visible scratchpad client. */
 int32_t restore_minimized(const Arg *arg) {
 	Client *c = NULL;
 
@@ -589,6 +608,7 @@ int32_t restore_minimized(const Arg *arg) {
 	return 0;
 }
 
+/* Action: switch the current tag's layout to the one whose name matches arg->v. */
 int32_t setlayout(const Arg *arg) {
 	int32_t jk;
 	if (!selmon)
@@ -606,6 +626,7 @@ int32_t setlayout(const Arg *arg) {
 	return 0;
 }
 
+/* Action: set the current key mode name to arg->v (used by modal keybinding groups). */
 int32_t setkeymode(const Arg *arg) {
 	snprintf(keymode.mode, sizeof(keymode.mode), "%.27s", arg->v);
 	if (strcmp(keymode.mode, "default") == 0) {
@@ -617,6 +638,7 @@ int32_t setkeymode(const Arg *arg) {
 	return 1;
 }
 
+/* Action: set the scroller width proportion of the focused stack-head client to arg->f. */
 int32_t set_proportion(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -632,7 +654,6 @@ int32_t set_proportion(const Arg *arg) {
 	if (!tc)
 		return 0;
 
-	/* 获取堆叠头部客户端 */
 	tc = scroll_get_stack_head_client(tc);
 	if (!tc)
 		return 0;
@@ -645,12 +666,10 @@ int32_t set_proportion(const Arg *arg) {
 	if (st)
 		node = find_scroller_node(st, tc);
 
-	/* 同时更新节点和客户端字段 */
 	if (node)
 		node->scroller_proportion = arg->f;
 	tc->scroller_proportion = arg->f;
 
-	/* 可选的即时几何更新，arrange 时会重新计算 */
 	uint32_t max_client_width =
 		m->w.width - 2 * config.scroller_structs - config.gappih;
 	tc->geom.width = max_client_width * arg->f;
@@ -659,6 +678,7 @@ int32_t set_proportion(const Arg *arg) {
 	return 0;
 }
 
+/* Action: cycle the scroller proportion of the focused client through configured presets in arg->i direction. */
 int32_t switch_proportion_preset(const Arg *arg) {
 	float target_proportion = 0;
 	if (!selmon)
@@ -690,11 +710,9 @@ int32_t switch_proportion_preset(const Arg *arg) {
 	if (st)
 		node = find_scroller_node(st, tc);
 
-	/* 优先从节点读取当前比例，以确保切换基于正确的值 */
 	float current_proportion =
 		node ? node->scroller_proportion : tc->scroller_proportion;
 
-	/* 查找预设目标 */
 	for (int32_t i = 0; i < config.scroller_proportion_preset_count; i++) {
 		if (config.scroller_proportion_preset[i] == current_proportion) {
 			if (arg->i == NEXT) {
@@ -719,7 +737,6 @@ int32_t switch_proportion_preset(const Arg *arg) {
 	if (target_proportion == 0.0f)
 		target_proportion = config.scroller_proportion_preset[0];
 
-	/* 更新节点和客户端 */
 	if (node)
 		node->scroller_proportion = target_proportion;
 	tc->scroller_proportion = target_proportion;
@@ -732,6 +749,7 @@ int32_t switch_proportion_preset(const Arg *arg) {
 	return 0;
 }
 
+/* Action: move the focused floating client toward arg->i direction, stopping at floating neighbors or screen edges. */
 int32_t smartmovewin(const Arg *arg) {
 	Client *c = NULL, *tc = NULL;
 	int32_t nx, ny;
@@ -835,6 +853,7 @@ int32_t smartmovewin(const Arg *arg) {
 	return 0;
 }
 
+/* Action: resize the focused floating client toward arg->i direction, stopping at floating neighbors or screen edges. */
 int32_t smartresizewin(const Arg *arg) {
 	Client *c = NULL, *tc = NULL;
 	int32_t nw, nh;
@@ -907,6 +926,7 @@ int32_t smartresizewin(const Arg *arg) {
 	return 0;
 }
 
+/* Action: center the focused client on its monitor (floating) or center its scroller stack head (tiled). */
 int32_t centerwin(const Arg *arg) {
 	Client *c = NULL;
 	if (!selmon)
@@ -939,12 +959,13 @@ int32_t centerwin(const Arg *arg) {
 	return 0;
 }
 
+/* Action: fork a child and execute arg->v through sh -c (then bash -c) for shell-feature command lines. */
 int32_t spawn_shell(const Arg *arg) {
 	if (!arg->v)
 		return 0;
 
 	if (fork() == 0) {
-		// 1. 忽略可能导致 coredump 的信号
+
 		signal(SIGSEGV, SIG_IGN);
 		signal(SIGABRT, SIG_IGN);
 		signal(SIGILL, SIG_IGN);
@@ -954,10 +975,8 @@ int32_t spawn_shell(const Arg *arg) {
 
 		execlp("sh", "sh", "-c", arg->v, (char *)NULL);
 
-		// fallback to bash
 		execlp("bash", "bash", "-c", arg->v, (char *)NULL);
 
-		// if execlp fails, we should not reach here
 		wlr_log(WLR_DEBUG,
 				"lemon: failed to execute command '%s' with shell: %s\n",
 				arg->v, strerror(errno));
@@ -966,12 +985,13 @@ int32_t spawn_shell(const Arg *arg) {
 	return 0;
 }
 
+/* Action: fork a child and exec arg->v via wordexp+execvp (no shell interpretation beyond word expansion). */
 int32_t spawn(const Arg *arg) {
 	if (!arg->v)
 		return 0;
 
 	if (fork() == 0) {
-		// 1. 忽略可能导致 coredump 的信号
+
 		signal(SIGSEGV, SIG_IGN);
 		signal(SIGABRT, SIG_IGN);
 		signal(SIGILL, SIG_IGN);
@@ -979,25 +999,23 @@ int32_t spawn(const Arg *arg) {
 		dup2(STDERR_FILENO, STDOUT_FILENO);
 		setsid();
 
-		// 2. 对整个参数字符串进行单词展开
 		wordexp_t p;
 		if (wordexp(arg->v, &p, 0) != 0) {
 			wlr_log(WLR_DEBUG, "lemon: wordexp failed for '%s'\n", arg->v);
 			_exit(EXIT_FAILURE);
 		}
 
-		// 3. 执行命令（p.we_wordv 已经是 argv 数组）
 		execvp(p.we_wordv[0], p.we_wordv);
 
-		// 4. execvp 失败时：打印错误，释放 wordexp 资源，然后退出
 		wlr_log(WLR_DEBUG, "lemon: execvp '%s' failed: %s\n", p.we_wordv[0],
 				strerror(errno));
-		wordfree(&p); // 释放 wordexp 分配的内存
+		wordfree(&p);
 		_exit(EXIT_FAILURE);
 	}
 	return 0;
 }
 
+/* Action: view arg->ui tag; if it has no clients, also spawn arg->v as a shell command on it. */
 int32_t spawn_on_empty(const Arg *arg) {
 	bool is_empty = true;
 	Client *c = NULL;
@@ -1018,6 +1036,7 @@ int32_t spawn_on_empty(const Arg *arg) {
 	return 0;
 }
 
+/* Action: cycle the active xkb keyboard layout to the next (or arg->i-th) layout across all keyboards. */
 int32_t switch_keyboard_layout(const Arg *arg) {
 	if (!kb_group || !kb_group->wlr_group || !seat) {
 		wlr_log(WLR_ERROR, "Invalid keyboard group or seat");
@@ -1030,7 +1049,6 @@ int32_t switch_keyboard_layout(const Arg *arg) {
 		return 0;
 	}
 
-	// 1. 获取当前布局和计算下一个布局
 	xkb_layout_index_t current = xkb_state_serialize_layout(
 		keyboard->xkb_state, XKB_STATE_LAYOUT_EFFECTIVE);
 	const int32_t num_layouts = xkb_keymap_num_layouts(keyboard->keymap);
@@ -1046,14 +1064,12 @@ int32_t switch_keyboard_layout(const Arg *arg) {
 		next = (current + 1) % num_layouts;
 	}
 
-	// 6. 应用新 keymap
 	uint32_t depressed = keyboard->modifiers.depressed;
 	uint32_t latched = keyboard->modifiers.latched;
 	uint32_t locked = keyboard->modifiers.locked;
 
 	wlr_keyboard_notify_modifiers(keyboard, depressed, latched, locked, next);
 
-	// 7. 更新 seat
 	wlr_seat_set_keyboard(seat, keyboard);
 	wlr_seat_keyboard_notify_modifiers(seat, &keyboard->modifiers);
 
@@ -1066,7 +1082,7 @@ int32_t switch_keyboard_layout(const Arg *arg) {
 		struct wlr_keyboard *tkb = (struct wlr_keyboard *)id->device_data;
 
 		wlr_keyboard_notify_modifiers(tkb, depressed, latched, locked, next);
-		// 7. 更新 seat
+
 		wlr_seat_set_keyboard(seat, tkb);
 		wlr_seat_keyboard_notify_modifiers(seat, &tkb->modifiers);
 	}
@@ -1075,6 +1091,7 @@ int32_t switch_keyboard_layout(const Arg *arg) {
 	return 0;
 }
 
+/* Action: cycle to the next layout in the configured circle list (or all layouts if no circle is configured). */
 int32_t switch_layout(const Arg *arg) {
 
 	int32_t jk, ji;
@@ -1133,6 +1150,7 @@ int32_t switch_layout(const Arg *arg) {
 	return 0;
 }
 
+/* Action: assign the focused client to tag(s) arg->ui and switch view accordingly. */
 int32_t tag(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1141,6 +1159,7 @@ int32_t tag(const Arg *arg) {
 	return 0;
 }
 
+/* Action: move the focused client to the monitor in arg->i direction or matching arg->v, retiling and refocusing. */
 int32_t tagmon(const Arg *arg) {
 	Monitor *m = NULL, *cm = NULL, *oldmon = NULL;
 	if (!selmon)
@@ -1195,8 +1214,6 @@ int32_t tagmon(const Arg *arg) {
 	selmon = c->mon;
 	c->float_geom = setclient_coordinate_center(c, c->mon, c->float_geom, 0, 0);
 
-	// 重新计算居中的坐标
-	// 重新计算居中的坐标
 	if (c->isfloating) {
 		c->geom = c->float_geom;
 		target = get_tags_first_tag(c->tags);
@@ -1216,6 +1233,7 @@ int32_t tagmon(const Arg *arg) {
 	return 0;
 }
 
+/* Action: move the focused client to tag(s) arg->ui without switching the current view. */
 int32_t tagsilent(const Arg *arg) {
 	Client *fc = NULL;
 	Client *target_client = NULL;
@@ -1236,6 +1254,7 @@ int32_t tagsilent(const Arg *arg) {
 	return 0;
 }
 
+/* Action: move the focused client to the tag immediately left of the current single-tag view. */
 int32_t tagtoleft(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1248,6 +1267,7 @@ int32_t tagtoleft(const Arg *arg) {
 	return 0;
 }
 
+/* Action: move the focused client to the tag immediately right of the current single-tag view. */
 int32_t tagtoright(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1260,6 +1280,7 @@ int32_t tagtoright(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle the named scratchpad identified by arg->v (id) or arg->v2 (title), spawning arg->v3 if not found. */
 int32_t toggle_named_scratchpad(const Arg *arg) {
 	Client *target_client = NULL;
 	char *arg_id = arg->v;
@@ -1279,6 +1300,7 @@ int32_t toggle_named_scratchpad(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle whether client borders are rendered, then re-arrange. */
 int32_t toggle_render_border(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1287,6 +1309,7 @@ int32_t toggle_render_border(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle visibility of unnamed scratchpad clients (minimize/restore), honoring single/cross-monitor settings. */
 int32_t toggle_scratchpad(const Arg *arg) {
 	Client *c = NULL;
 	bool hit = false;
@@ -1317,6 +1340,7 @@ int32_t toggle_scratchpad(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle fake-fullscreen state on the focused client (fullscreens visually without unmanaging tiling). */
 int32_t togglefakefullscreen(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1326,6 +1350,7 @@ int32_t togglefakefullscreen(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle the focused client between floating and tiled. */
 int32_t togglefloating(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1350,6 +1375,7 @@ int32_t togglefloating(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle fullscreen on the focused client (clearing scratchpad flags first). */
 int32_t togglefullscreen(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1369,6 +1395,7 @@ int32_t togglefullscreen(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle the "global" (sticky across tags) flag on the focused client. */
 int32_t toggleglobal(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1385,6 +1412,7 @@ int32_t toggleglobal(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle the global gaps-enabled flag and re-arrange. */
 int32_t togglegaps(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1394,6 +1422,7 @@ int32_t togglegaps(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle maximize-to-screen on the focused client (fills monitor but stays in layout). */
 int32_t togglemaximizescreen(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1415,6 +1444,7 @@ int32_t togglemaximizescreen(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle overlay state on the focused client, reparenting its scene node between layers. */
 int32_t toggleoverlay(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1439,6 +1469,7 @@ int32_t toggleoverlay(const Arg *arg) {
 	return 0;
 }
 
+/* Action: XOR the focused client's tag mask with arg->ui (special-case INT_MIN toggles between all-tags and current tag). */
 int32_t toggletag(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1465,6 +1496,7 @@ int32_t toggletag(const Arg *arg) {
 	return 0;
 }
 
+/* Action: XOR the current monitor's view tag mask with arg->ui (or all-tags if 0), refocusing and re-arranging. */
 int32_t toggleview(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1491,6 +1523,7 @@ int32_t toggleview(const Arg *arg) {
 	return 0;
 }
 
+/* Action: view the tag immediately to the left of the current one. */
 int32_t viewtoleft(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1514,6 +1547,7 @@ int32_t viewtoleft(const Arg *arg) {
 	return 0;
 }
 
+/* Action: view the tag immediately to the right of the current one. */
 int32_t viewtoright(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1534,6 +1568,7 @@ int32_t viewtoright(const Arg *arg) {
 	return 0;
 }
 
+/* Action: view the nearest tag to the left that contains at least one client. */
 int32_t viewtoleft_have_client(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1561,6 +1596,7 @@ int32_t viewtoleft_have_client(const Arg *arg) {
 	return 0;
 }
 
+/* Action: view the nearest tag to the right that contains at least one client. */
 int32_t viewtoright_have_client(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1588,6 +1624,7 @@ int32_t viewtoright_have_client(const Arg *arg) {
 	return 0;
 }
 
+/* Action: switch focus to monitor arg->v and view arg->ui's tag there. */
 int32_t viewcrossmon(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1597,6 +1634,7 @@ int32_t viewcrossmon(const Arg *arg) {
 	return 0;
 }
 
+/* Action: tag the focused client to tag arg->ui on monitor arg->v (current monitor uses tag, otherwise tagmon). */
 int32_t tagcrossmon(const Arg *arg) {
 	if (!selmon || !selmon->sel)
 		return 0;
@@ -1610,6 +1648,7 @@ int32_t tagcrossmon(const Arg *arg) {
 	return 0;
 }
 
+/* Action: chord-combo view; first press views arg->ui, subsequent presses OR new tags into the current view. */
 int32_t comboview(const Arg *arg) {
 	uint32_t newtags = arg->ui & TAGMASK;
 
@@ -1629,6 +1668,7 @@ int32_t comboview(const Arg *arg) {
 	return 0;
 }
 
+/* Action: zoom — promote the focused client to the master area (or swap with the previous master). */
 int32_t zoom(const Arg *arg) {
 	Client *c = NULL, *sel = focustop(selmon);
 
@@ -1637,8 +1677,6 @@ int32_t zoom(const Arg *arg) {
 		sel->isfloating)
 		return 0;
 
-	/* Search for the first tiled window that is not sel, marking sel as
-	 * NULL if we pass it along the way */
 	wl_list_for_each(c, &clients,
 					 link) if (VISIBLEON(c, selmon) && !c->isfloating) {
 		if (c != sel)
@@ -1646,12 +1684,9 @@ int32_t zoom(const Arg *arg) {
 		sel = NULL;
 	}
 
-	/* Return if no other tiled window was found */
 	if (&c->link == &clients)
 		return 0;
 
-	/* If we passed sel, move c to the front; otherwise, move sel to the
-	 * front */
 	if (!sel)
 		sel = c;
 	wl_list_remove(&sel->link);
@@ -1662,6 +1697,7 @@ int32_t zoom(const Arg *arg) {
 	return 0;
 }
 
+/* Action: apply a runtime config option key=value pair (arg->v=key, arg->v2=value) and refresh state. */
 int32_t setoption(const Arg *arg) {
 	parse_option(&config, arg->v, arg->v2);
 	override_config();
@@ -1669,6 +1705,7 @@ int32_t setoption(const Arg *arg) {
 	return 0;
 }
 
+/* Action: minimize the focused client (hide from layout, keep state). */
 int32_t minimized(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1682,6 +1719,7 @@ int32_t minimized(const Arg *arg) {
 	return 0;
 }
 
+/* Restore the monitor's previous-tag bookkeeping after exiting overview mode. */
 void fix_mon_tagset_from_overview(Monitor *m) {
 	if (m->tagset[m->seltags] == (m->ovbk_prev_tagset & TAGMASK)) {
 		m->tagset[m->seltags ^ 1] = m->ovbk_current_tagset;
@@ -1692,6 +1730,7 @@ void fix_mon_tagset_from_overview(Monitor *m) {
 	}
 }
 
+/* Action: toggle overview mode — show all clients across all tags at once (or restore previous view). */
 int32_t toggleoverview(const Arg *arg) {
 	Client *c = NULL;
 	if (!selmon)
@@ -1733,11 +1772,8 @@ int32_t toggleoverview(const Arg *arg) {
 		return 0;
 	}
 
-	// 正常视图到overview,退出所有窗口的浮动和全屏状态参与平铺,
-	// overview到正常视图,还原之前退出的浮动和全屏窗口状态
 	if (selmon->isoverview) {
 
-		// 让游戏窗口无法强制约束鼠标
 		wlr_seat_pointer_clear_focus(seat);
 		wlr_cursor_set_xcursor(cursor, cursor_mgr, "default");
 
@@ -1761,6 +1797,7 @@ int32_t toggleoverview(const Arg *arg) {
 	return 0;
 }
 
+/* Action: disable (turn off) the monitor matching arg->v spec. */
 int32_t disable_monitor(const Arg *arg) {
 	Monitor *m = NULL;
 	struct wlr_output_state state = {0};
@@ -1776,6 +1813,7 @@ int32_t disable_monitor(const Arg *arg) {
 	return 0;
 }
 
+/* Action: enable (turn on) the monitor matching arg->v spec. */
 int32_t enable_monitor(const Arg *arg) {
 	Monitor *m = NULL;
 	struct wlr_output_state state = {0};
@@ -1791,6 +1829,7 @@ int32_t enable_monitor(const Arg *arg) {
 	return 0;
 }
 
+/* Action: toggle on/off state of the monitor matching arg->v spec. */
 int32_t toggle_monitor(const Arg *arg) {
 	Monitor *m = NULL;
 	struct wlr_output_state state = {0};
@@ -1806,6 +1845,7 @@ int32_t toggle_monitor(const Arg *arg) {
 	return 0;
 }
 
+/* Stack client c onto target_client (or remove from stack) in the scroller layout, honoring layout direction. */
 int32_t scroller_apply_stack(Client *c, Client *target_client,
 							 int32_t direction) {
 	if (!c || !c->mon || c->isfloating || !is_scroller_layout(c->mon))
@@ -1823,7 +1863,6 @@ int32_t scroller_apply_stack(Client *c, Client *target_client,
 
 	struct TagScrollerState *st = ensure_scroller_state(m, tag);
 
-	/* 获取当前节点 */
 	struct ScrollerStackNode *cnode = find_scroller_node(st, c);
 
 	if (!cnode)
@@ -1832,20 +1871,16 @@ int32_t scroller_apply_stack(Client *c, Client *target_client,
 	struct ScrollerStackNode *tnode =
 		target_client ? find_scroller_node(st, target_client) : NULL;
 
-	/* 若方向为 UNDIR 且有目标，直接插入到目标尾部 */
 	if (direction == UNDIR && target_client && target_client->mon == c->mon) {
 		scroller_insert_stack(c, target_client, false);
 		return 0;
 	}
 
-	/* 处理从堆叠中移出的情况（方向 LEFT/UP 或 RIGHT/DOWN） */
 	if (cnode->prev_in_stack || cnode->next_in_stack) {
 		struct ScrollerStackNode *move_out_refer_node =
 			cnode->prev_in_stack ? cnode->prev_in_stack : cnode->next_in_stack;
 		scroller_node_remove(st, cnode);
 
-		// 必须先更新，不然里面节点还存着的是cnode的信息，
-		// 会造成stach_head/stack_tail指向的客户端不对
 		update_scroller_state(c->mon);
 
 		Client *stack_head =
@@ -1872,12 +1907,10 @@ int32_t scroller_apply_stack(Client *c, Client *target_client,
 	if (!tnode || target_client->mon != c->mon)
 		return 0;
 
-	/* 找到目标堆叠的尾部节点 */
 	struct ScrollerStackNode *tail = tnode;
 	while (tail->next_in_stack)
 		tail = tail->next_in_stack;
 
-	/* 通过封装好的插入函数实现（尾部插入） */
 	scroller_insert_stack(c, tail->client, false);
 
 	if (c != tail->client) {
@@ -1887,6 +1920,7 @@ int32_t scroller_apply_stack(Client *c, Client *target_client,
 	return 0;
 }
 
+/* Action: in scroller layout, stack the focused client onto the neighbor found in arg->i direction. */
 int32_t scroller_stack(const Arg *arg) {
 	if (!selmon)
 		return 0;
@@ -1899,6 +1933,7 @@ int32_t scroller_stack(const Arg *arg) {
 	return scroller_apply_stack(c, target_client, arg->i);
 }
 
+/* Action: toggle floating state on every visible client to match the inverse of the focused client. */
 int32_t toggle_all_floating(const Arg *arg) {
 	if (!selmon || !selmon->sel)
 		return 0;
@@ -1923,6 +1958,7 @@ int32_t toggle_all_floating(const Arg *arg) {
 	return 0;
 }
 
+/* Set the dwindle split direction of c's leaf to horizontal/vertical (or toggle), and refresh split borders. */
 int32_t dwindle_set_split_direction(Client *c, bool istoggle, bool horizontal) {
 
 	const Layout *layout = c->mon->pertag->ltidxs[c->mon->pertag->curtag];
@@ -1948,6 +1984,7 @@ int32_t dwindle_set_split_direction(Client *c, bool istoggle, bool horizontal) {
 	return 0;
 }
 
+/* Action: toggle the dwindle split direction (horizontal/vertical) of the focused client's leaf. */
 int32_t dwindle_toggle_split_direction(const Arg *arg) {
 	if (!selmon || !selmon->sel)
 		return 0;
@@ -1958,6 +1995,7 @@ int32_t dwindle_toggle_split_direction(const Arg *arg) {
 	return dwindle_set_split_direction(selmon->sel, true, false);
 }
 
+/* Action: force the focused client's dwindle leaf to split horizontally. */
 int32_t dwindle_split_horizontal(const Arg *arg) {
 	if (!selmon || !selmon->sel)
 		return 0;
@@ -1968,6 +2006,7 @@ int32_t dwindle_split_horizontal(const Arg *arg) {
 	return dwindle_set_split_direction(selmon->sel, false, true);
 }
 
+/* Action: force the focused client's dwindle leaf to split vertically. */
 int32_t dwindle_split_vertical(const Arg *arg) {
 	if (!selmon || !selmon->sel)
 		return 0;

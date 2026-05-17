@@ -31,7 +31,6 @@ static void dwl_ipc_output_dispatch(struct wl_client *client,
 static void dwl_ipc_output_release(struct wl_client *client,
 								   struct wl_resource *resource);
 
-/* global event handlers */
 static struct zdwl_ipc_manager_v2_interface dwl_manager_implementation = {
 	.release = dwl_ipc_manager_release,
 	.get_output = dwl_ipc_manager_get_output};
@@ -43,6 +42,7 @@ static struct zdwl_ipc_output_v2_interface dwl_output_implementation = {
 	.set_layout = dwl_ipc_output_set_layout,
 	.set_client_tags = dwl_ipc_output_set_client_tags};
 
+/* Global bind: create the dwl IPC manager resource for a client and advertise tags/layouts. */
 void dwl_ipc_manager_bind(struct wl_client *client, void *data,
 						  uint32_t version, uint32_t id) {
 	struct wl_resource *manager_resource =
@@ -61,10 +61,12 @@ void dwl_ipc_manager_bind(struct wl_client *client, void *data,
 		zdwl_ipc_manager_v2_send_layout(manager_resource, layouts[i].symbol);
 }
 
+/* Resource destructor for the IPC manager (no per-resource state to free). */
 void dwl_ipc_manager_destroy(struct wl_resource *resource) {
-	/* No state to destroy */
+
 }
 
+/* IPC request: bind a per-monitor IPC output resource and push initial status. */
 void dwl_ipc_manager_get_output(struct wl_client *client,
 								struct wl_resource *resource, uint32_t id,
 								struct wl_resource *output) {
@@ -88,25 +90,27 @@ void dwl_ipc_manager_get_output(struct wl_client *client,
 	dwl_ipc_output_printstatus_to(ipc_output);
 }
 
+/* IPC request: client released the manager — destroy its resource. */
 void dwl_ipc_manager_release(struct wl_client *client,
 							 struct wl_resource *resource) {
 	wl_resource_destroy(resource);
 }
 
+/* Resource destructor for an IPC output: unlink from monitor list and free. */
 static void dwl_ipc_output_destroy(struct wl_resource *resource) {
 	DwlIpcOutput *ipc_output = wl_resource_get_user_data(resource);
 	wl_list_remove(&ipc_output->link);
 	free(ipc_output);
 }
 
-// 修改IPC输出函数，接受掩码参数
+/* Broadcast current monitor status to every IPC subscriber attached to it. */
 void dwl_ipc_output_printstatus(Monitor *monitor) {
 	DwlIpcOutput *ipc_output;
 	wl_list_for_each(ipc_output, &monitor->dwl_ipc_outputs, link)
 		dwl_ipc_output_printstatus_to(ipc_output);
 }
 
-// 修改主IPC输出函数，根据掩码发送相应事件
+/* Send tags, layout, title, geometry, kb layout and other state to a single IPC subscriber. */
 void dwl_ipc_output_printstatus_to(DwlIpcOutput *ipc_output) {
 	Monitor *monitor = ipc_output->mon;
 	Client *c = NULL, *focused = NULL;
@@ -214,6 +218,7 @@ void dwl_ipc_output_printstatus_to(DwlIpcOutput *ipc_output) {
 	zdwl_ipc_output_v2_send_frame(ipc_output->resource);
 }
 
+/* IPC request: retag the focused client on this output using AND/XOR masks. */
 void dwl_ipc_output_set_client_tags(struct wl_client *client,
 									struct wl_resource *resource,
 									uint32_t and_tags, uint32_t xor_tags) {
@@ -242,6 +247,7 @@ void dwl_ipc_output_set_client_tags(struct wl_client *client,
 	printstatus();
 }
 
+/* IPC request: switch the current tag's layout on this monitor to layouts[index]. */
 void dwl_ipc_output_set_layout(struct wl_client *client,
 							   struct wl_resource *resource, uint32_t index) {
 	DwlIpcOutput *ipc_output;
@@ -261,6 +267,7 @@ void dwl_ipc_output_set_layout(struct wl_client *client,
 	printstatus();
 }
 
+/* IPC request: view the given tagmask on this monitor. */
 void dwl_ipc_output_set_tags(struct wl_client *client,
 							 struct wl_resource *resource, uint32_t tagmask,
 							 uint32_t toggle_tagset) {
@@ -276,11 +283,13 @@ void dwl_ipc_output_set_tags(struct wl_client *client,
 	view_in_mon(&(Arg){.ui = newtags}, true, monitor, true);
 }
 
+/* IPC request: tell the compositor to quit. */
 void dwl_ipc_output_quit(struct wl_client *client,
 						 struct wl_resource *resource) {
 	quit(&(Arg){0});
 }
 
+/* IPC request: parse a named action with up to 5 string args and invoke the compositor function. */
 void dwl_ipc_output_dispatch(struct wl_client *client,
 							 struct wl_resource *resource, const char *dispatch,
 							 const char *arg1, const char *arg2,
@@ -303,6 +312,7 @@ void dwl_ipc_output_dispatch(struct wl_client *client,
 		free(arg.v3);
 }
 
+/* IPC request: client released the output resource — destroy it. */
 void dwl_ipc_output_release(struct wl_client *client,
 							struct wl_resource *resource) {
 	wl_resource_destroy(resource);

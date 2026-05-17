@@ -1,3 +1,4 @@
+/* Return true if client c should be rendered without a border given config and monitor state. */
 bool check_hit_no_border(Client *c) {
 	bool hit_no_border = false;
 	if (!render_border) {
@@ -17,6 +18,7 @@ bool check_hit_no_border(Client *c) {
 	return hit_no_border;
 }
 
+/* Find a terminal client whose process is an ancestor of w's process, or NULL. */
 Client *termforwin(Client *w) {
 	Client *c = NULL;
 
@@ -32,6 +34,7 @@ Client *termforwin(Client *w) {
 
 	return NULL;
 }
+/* Find the first client matching the given appid and/or title regexes, or NULL. */
 Client *get_client_by_id_or_title(const char *arg_id, const char *arg_title) {
 	Client *target_client = NULL;
 	const char *appid, *title;
@@ -73,6 +76,7 @@ Client *get_client_by_id_or_title(const char *arg_id, const char *arg_title) {
 	}
 	return target_client;
 }
+/* Center client c's geometry on monitor tm, applying optional percent offsets and clamping. */
 struct wlr_box // 计算客户端居中坐标
 setclient_coordinate_center(Client *c, Monitor *tm, struct wlr_box geom,
 							int32_t offsetx, int32_t offsety) {
@@ -127,6 +131,7 @@ setclient_coordinate_center(Client *c, Monitor *tm, struct wlr_box geom,
 	return tempbox;
 }
 /* Helper: Check if rule matches client */
+/* Return true if a window rule's id/title regexes match the given appid/title. */
 static bool is_window_rule_matches(const ConfigWinRule *r, const char *appid,
 								   const char *title) {
 	return (r->title && regex_match(r->title, title) && !r->id) ||
@@ -135,6 +140,7 @@ static bool is_window_rule_matches(const ConfigWinRule *r, const char *appid,
 			regex_match(r->title, title));
 }
 
+/* Return the visible tiled non-floating client closest to the center of monitor m. */
 Client *center_tiled_select(Monitor *m) {
 	Client *c = NULL;
 	Client *target_c = NULL;
@@ -156,6 +162,7 @@ Client *center_tiled_select(Monitor *m) {
 	}
 	return target_c;
 }
+/* Find the nearest client in the given direction (up/down/left/right) from tc. */
 Client *find_client_by_direction(Client *tc, const Arg *arg, bool findfloating,
 								 bool ignore_align) {
 	Client *c = NULL;
@@ -443,6 +450,7 @@ Client *find_client_by_direction(Client *tc, const Arg *arg, bool findfloating,
 	}
 }
 
+/* Return the client in the requested direction from the currently selected one. */
 Client *direction_select(const Arg *arg) {
 
 	Client *tc = selmon->sel;
@@ -464,6 +472,7 @@ Client *direction_select(const Arg *arg) {
 /* We probably should change the name of this, it sounds like
  * will focus the topmost client of this mon, when actually will
  * only return that client */
+/* Return the topmost visible focusable client on monitor m from the focus stack. */
 Client *focustop(Monitor *m) {
 	Client *c = NULL;
 	wl_list_for_each(c, &fstack, flink) {
@@ -475,6 +484,7 @@ Client *focustop(Monitor *m) {
 	return NULL;
 }
 
+/* Return the next (or previous) visible client in the client list relative to c. */
 Client *get_next_stack_client(Client *c, bool reverse) {
 	if (!c || !c->mon)
 		return NULL;
@@ -506,6 +516,7 @@ Client *get_next_stack_client(Client *c, bool reverse) {
 	return NULL;
 }
 
+/* Return the configured border color for client c based on its state and selection. */
 float *get_border_color(Client *c) {
 
 	if (c->mon != selmon) {
@@ -527,8 +538,10 @@ float *get_border_color(Client *c) {
 	}
 }
 
+/* Return non-zero if x is a non-zero power of two (exactly one bit set). */
 int32_t is_single_bit_set(uint32_t x) { return x && !(x & (x - 1)); }
 
+/* Return true if client c occupies exactly one tag. */
 bool client_only_in_one_tag(Client *c) {
 	uint32_t masked = c->tags & TAGMASK;
 	if (is_single_bit_set(masked)) {
@@ -538,6 +551,7 @@ bool client_only_in_one_tag(Client *c) {
 	}
 }
 
+/* Return true if source and target clients share the same layout stack, excluding fc. */
 bool client_is_in_same_stack(Client *sc, Client *tc, Client *fc) {
 	if (!sc || !tc)
 		return false;
@@ -586,6 +600,7 @@ bool client_is_in_same_stack(Client *sc, Client *tc, Client *fc) {
 	return false;
 }
 
+/* Return the focused client of the stack containing sc, or sc itself if none. */
 Client *get_focused_stack_client(Client *sc) {
 	if (!sc || sc->isfloating)
 		return sc;

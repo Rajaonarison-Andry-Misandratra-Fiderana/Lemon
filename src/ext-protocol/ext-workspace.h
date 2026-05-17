@@ -17,6 +17,7 @@ struct workspace {
 struct wlr_ext_workspace_manager_v1 *ext_manager;
 struct wl_list workspaces;
 
+/* Switch to the workspace's tag, or toggle overview when target tag is 0. */
 void goto_workspace(struct workspace *target) {
 	uint32_t tag;
 	tag = 1 << (target->tag - 1);
@@ -28,6 +29,7 @@ void goto_workspace(struct workspace *target) {
 	}
 }
 
+/* Toggle the workspace's tag in the current view, or toggle overview for tag 0. */
 void toggle_workspace(struct workspace *target) {
 	uint32_t tag;
 	tag = 1 << (target->tag - 1);
@@ -39,6 +41,7 @@ void toggle_workspace(struct workspace *target) {
 	}
 }
 
+/* Listener: ext-workspace manager commit — process pending activate/deactivate requests. */
 static void handle_ext_commit(struct wl_listener *listener, void *data) {
 	struct wlr_ext_workspace_v1_commit_event *event = data;
 	struct wlr_ext_workspace_v1_request *request;
@@ -95,18 +98,21 @@ static void handle_ext_commit(struct wl_listener *listener, void *data) {
 	}
 }
 
+/* Map a tag index to its display name ("overview", "1".."9"). */
 static const char *get_name_from_tag(uint32_t tag) {
 	static const char *names[] = {"overview", "1", "2", "3", "4",
 								  "5",		  "6", "7", "8", "9"};
 	return (tag < sizeof(names) / sizeof(names[0])) ? names[tag] : NULL;
 }
 
+/* Destroy an ext-workspace handle, unlink it from the list and free it. */
 void destroy_workspace(struct workspace *workspace) {
 	wlr_ext_workspace_handle_v1_destroy(workspace->ext_workspace);
 	wl_list_remove(&workspace->link);
 	free(workspace);
 }
 
+/* Destroy every workspace bound to a given monitor (called on monitor teardown). */
 void cleanup_workspaces_by_monitor(Monitor *m) {
 	struct workspace *workspace, *tmp;
 	wl_list_for_each_safe(workspace, tmp, &workspaces, link) {
@@ -116,6 +122,7 @@ void cleanup_workspaces_by_monitor(Monitor *m) {
 	}
 }
 
+/* Remove the workspace matching (tag, monitor) if it exists. */
 static void remove_workspace_by_tag(uint32_t tag, Monitor *m) {
 	struct workspace *workspace, *tmp;
 	wl_list_for_each_safe(workspace, tmp, &workspaces, link) {
@@ -126,6 +133,7 @@ static void remove_workspace_by_tag(uint32_t tag, Monitor *m) {
 	}
 }
 
+/* Create an ext-workspace handle for (tag, monitor), assign it to the monitor's group. */
 static void add_workspace_by_tag(int32_t tag, Monitor *m) {
 	const char *name = get_name_from_tag(tag);
 
@@ -144,6 +152,7 @@ static void add_workspace_by_tag(int32_t tag, Monitor *m) {
 	wlr_ext_workspace_handle_v1_set_name(workspace->ext_workspace, name);
 }
 
+/* Push active/urgent/hidden state for every workspace handle on this monitor. */
 void dwl_ext_workspace_printstatus(Monitor *m) {
 	struct workspace *w;
 	uint32_t tag_status = 0;
@@ -180,6 +189,7 @@ void dwl_ext_workspace_printstatus(Monitor *m) {
 	}
 }
 
+/* Rebuild workspace handles for a monitor depending on overview mode, then broadcast state. */
 void refresh_monitors_workspaces_status(Monitor *m) {
 	int32_t i;
 
@@ -198,6 +208,7 @@ void refresh_monitors_workspaces_status(Monitor *m) {
 	dwl_ext_workspace_printstatus(m);
 }
 
+/* Create the ext-workspace manager global and subscribe to its commit signal. */
 void workspaces_init() {
 	ext_manager = wlr_ext_workspace_manager_v1_create(dpy, 1);
 

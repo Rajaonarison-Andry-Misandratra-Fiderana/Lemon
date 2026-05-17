@@ -1,11 +1,5 @@
-/*
- * Attempt to consolidate unavoidable suck into one file, away from dwl.c.  This
- * file is not meant to be pretty.  We use a .h file with static inline
- * functions instead of a separate .c module, or function pointers like sway, so
- * that they will simply compile out if the chosen #defines leave them unused.
- */
 
-/* Leave these functions first; they're used in the others */
+/* Return non-zero if the client is an XWayland (X11) surface. */
 static inline int32_t client_is_x11(Client *c) {
 #ifdef XWAYLAND
 	return c->type == X11;
@@ -13,6 +7,7 @@ static inline int32_t client_is_x11(Client *c) {
 	return 0;
 }
 
+/* Return the underlying wlr_surface for the client (xdg or xwayland). */
 static inline struct wlr_surface *client_surface(Client *c) {
 #ifdef XWAYLAND
 	if (client_is_x11(c))
@@ -21,6 +16,7 @@ static inline struct wlr_surface *client_surface(Client *c) {
 	return c->surface.xdg->surface;
 }
 
+/* Resolve a wlr_surface to its toplevel Client or LayerSurface and return its type. */
 static inline int32_t toplevel_from_wlr_surface(struct wlr_surface *s,
 												Client **pc,
 												LayerSurface **pl) {
@@ -87,7 +83,7 @@ end:
 	return type;
 }
 
-/* The others */
+/* Mark a surface as activated/deactivated on its xdg or xwayland toplevel. */
 static inline void client_activate_surface(struct wlr_surface *s,
 										   int32_t activated) {
 	struct wlr_xdg_toplevel *toplevel;
@@ -104,6 +100,7 @@ static inline void client_activate_surface(struct wlr_surface *s,
 		wlr_xdg_toplevel_set_activated(toplevel, activated);
 }
 
+/* Return the client's application id/class string, or "broken" if unset. */
 static inline const char *client_get_appid(Client *c) {
 #ifdef XWAYLAND
 	if (client_is_x11(c))
@@ -114,6 +111,7 @@ static inline const char *client_get_appid(Client *c) {
 											: "broken";
 }
 
+/* Return the PID of the process owning the client. */
 static inline int32_t client_get_pid(Client *c) {
 	pid_t pid;
 #ifdef XWAYLAND
@@ -124,6 +122,7 @@ static inline int32_t client_get_pid(Client *c) {
 	return pid;
 }
 
+/* Compute the clip box (visible content area inside borders) for the client. */
 static inline void client_get_clip(Client *c, struct wlr_box *clip) {
 	*clip = (struct wlr_box){
 		.x = 0,
@@ -141,6 +140,7 @@ static inline void client_get_clip(Client *c, struct wlr_box *clip) {
 	clip->y = c->surface.xdg->geometry.y;
 }
 
+/* Fill geom with the client's current surface geometry (position and size). */
 static inline void client_get_geometry(Client *c, struct wlr_box *geom) {
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
@@ -154,6 +154,7 @@ static inline void client_get_geometry(Client *c, struct wlr_box *geom) {
 	*geom = c->surface.xdg->geometry;
 }
 
+/* Return the parent Client of a transient/child client, or NULL if none. */
 static inline Client *client_get_parent(Client *c) {
 	Client *p = NULL;
 #ifdef XWAYLAND
@@ -170,16 +171,17 @@ static inline Client *client_get_parent(Client *c) {
 	return p;
 }
 
+/* Return non-zero if the client has any child surfaces. */
 static inline int32_t client_has_children(Client *c) {
 #ifdef XWAYLAND
 	if (client_is_x11(c))
 		return !wl_list_empty(&c->surface.xwayland->children);
 #endif
-	/* surface.xdg->link is never empty because it always contains at least the
-	 * surface itself. */
+
 	return wl_list_length(&c->surface.xdg->link) > 1;
 }
 
+/* Return the client's window title, or "broken" if unset. */
 static inline const char *client_get_title(Client *c) {
 #ifdef XWAYLAND
 	if (client_is_x11(c))
@@ -190,6 +192,7 @@ static inline const char *client_get_title(Client *c) {
 										   : "broken";
 }
 
+/* Return non-zero if the client should be treated as a floating window by type/hints. */
 static inline int32_t client_is_float_type(Client *c) {
 	struct wlr_xdg_toplevel *toplevel;
 	struct wlr_xdg_toplevel_state state;
@@ -230,10 +233,9 @@ static inline int32_t client_is_float_type(Client *c) {
 								 state.min_height == state.max_height));
 }
 
+/* Return non-zero if the client is currently being rendered on the given monitor. */
 static inline int32_t client_is_rendered_on_mon(Client *c, Monitor *m) {
-	/* This is needed for when you don't want to check formal assignment,
-	 * but rather actual displaying of the pixels.
-	 * Usually VISIBLEON suffices and is also faster. */
+
 	struct wlr_surface_output *s;
 	int32_t unused_lx, unused_ly;
 	if (!wlr_scene_node_coords(&c->scene->node, &unused_lx, &unused_ly))
@@ -243,6 +245,7 @@ static inline int32_t client_is_rendered_on_mon(Client *c, Monitor *m) {
 	return 0;
 }
 
+/* Return non-zero if the client is an unmanaged (override-redirect) XWayland surface. */
 static inline int32_t client_is_unmanaged(Client *c) {
 #ifdef XWAYLAND
 	if (client_is_x11(c))
@@ -251,6 +254,7 @@ static inline int32_t client_is_unmanaged(Client *c) {
 	return 0;
 }
 
+/* Notify the seat's keyboard focus enters the given surface. */
 static inline void client_notify_enter(struct wlr_surface *s,
 									   struct wlr_keyboard *kb) {
 	if (kb)
@@ -260,6 +264,7 @@ static inline void client_notify_enter(struct wlr_surface *s,
 		wlr_seat_keyboard_notify_enter(seat, s, NULL, 0, NULL);
 }
 
+/* Request the client to close its toplevel window. */
 static inline void client_send_close(Client *c) {
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
@@ -270,11 +275,13 @@ static inline void client_send_close(Client *c) {
 	wlr_xdg_toplevel_send_close(c->surface.xdg->toplevel);
 }
 
+/* Set the color of the client's border rectangle in the scene graph. */
 static inline void client_set_border_color(Client *c,
 										   const float color[static 4]) {
 	wlr_scene_rect_set_color(c->border, color);
 }
 
+/* Request fullscreen/unfullscreen on the client, deduplicated by last sent state. */
 static inline void client_set_fullscreen(Client *c, int32_t fullscreen) {
 	int8_t want = fullscreen ? 1 : 0;
 #ifdef XWAYLAND
@@ -292,11 +299,13 @@ static inline void client_set_fullscreen(Client *c, int32_t fullscreen) {
 	wlr_xdg_toplevel_set_fullscreen(c->surface.xdg->toplevel, fullscreen);
 }
 
+/* Advertise a fractional and preferred integer buffer scale to the surface. */
 static inline void client_set_scale(struct wlr_surface *s, float scale) {
 	wlr_fractional_scale_v1_notify_scale(s, scale);
 	wlr_surface_set_preferred_buffer_scale(s, (int32_t)ceilf(scale));
 }
 
+/* Configure the client's size (and X11 position), returning non-zero if a change was sent. */
 static inline uint32_t client_set_size(Client *c, uint32_t width,
 									   uint32_t height) {
 #ifdef XWAYLAND
@@ -338,6 +347,7 @@ static inline uint32_t client_set_size(Client *c, uint32_t width,
 									 (int32_t)height);
 }
 
+/* Set the client's minimized state (XWayland only; xdg path is a no-op). */
 static inline void client_set_minimized(Client *c, bool minimized) {
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
@@ -349,6 +359,7 @@ static inline void client_set_minimized(Client *c, bool minimized) {
 	return;
 }
 
+/* Request maximized/unmaximized on the client, deduplicated by last sent state. */
 static inline void client_set_maximized(Client *c, bool maximized) {
 	struct wlr_xdg_toplevel *toplevel;
 	int8_t want = maximized ? 1 : 0;
@@ -371,6 +382,7 @@ static inline void client_set_maximized(Client *c, bool maximized) {
 	return;
 }
 
+/* Send tiled-edge state to the client, optionally faking it as maximized. */
 static inline void client_set_tiled(Client *c, uint32_t edges) {
 	struct wlr_xdg_toplevel *toplevel;
 #ifdef XWAYLAND
@@ -405,6 +417,7 @@ static inline void client_set_tiled(Client *c, uint32_t edges) {
 	}
 }
 
+/* Mark the xdg client as suspended/resumed, deduplicated by last sent state. */
 static inline void client_set_suspended(Client *c, int32_t suspended) {
 	int8_t want = suspended ? 1 : 0;
 #ifdef XWAYLAND
@@ -418,6 +431,7 @@ static inline void client_set_suspended(Client *c, int32_t suspended) {
 	wlr_xdg_toplevel_set_suspended(c->surface.xdg->toplevel, suspended);
 }
 
+/* Return non-zero if the client opts out of input focus via ICCCM hints. */
 static inline int32_t client_should_ignore_focus(Client *c) {
 
 #ifdef XWAYLAND
@@ -433,12 +447,13 @@ static inline int32_t client_should_ignore_focus(Client *c) {
 	return 0;
 }
 
+/* Return non-zero if the client is an X11 popup/menu/notification window type. */
 static inline int32_t client_is_x11_popup(Client *c) {
 
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
 		struct wlr_xwayland_surface *surface = c->surface.xwayland;
-		// 处理不需要焦点的窗口类型
+
 		const uint32_t no_focus_types[] = {
 			WLR_XWAYLAND_NET_WM_WINDOW_TYPE_COMBO,
 			WLR_XWAYLAND_NET_WM_WINDOW_TYPE_DND,
@@ -449,7 +464,7 @@ static inline int32_t client_is_x11_popup(Client *c) {
 			WLR_XWAYLAND_NET_WM_WINDOW_TYPE_SPLASH,
 			WLR_XWAYLAND_NET_WM_WINDOW_TYPE_TOOLTIP,
 			WLR_XWAYLAND_NET_WM_WINDOW_TYPE_UTILITY};
-		// 检查窗口类型是否需要禁止焦点
+
 		for (size_t i = 0;
 			 i < sizeof(no_focus_types) / sizeof(no_focus_types[0]); ++i) {
 			if (wlr_xwayland_surface_has_window_type(surface,
@@ -462,6 +477,7 @@ static inline int32_t client_is_x11_popup(Client *c) {
 	return 0;
 }
 
+/* Return non-zero if the client should be shown on all tags (e.g. sticky X11 window). */
 static inline int32_t client_should_global(Client *c) {
 
 #ifdef XWAYLAND
@@ -475,6 +491,7 @@ static inline int32_t client_should_global(Client *c) {
 	return 0;
 }
 
+/* Return non-zero if the client requests always-on-top stacking. */
 static inline int32_t client_should_overtop(Client *c) {
 
 #ifdef XWAYLAND
@@ -487,6 +504,7 @@ static inline int32_t client_should_overtop(Client *c) {
 	return 0;
 }
 
+/* Return non-zero if an unmanaged X11 client wants keyboard focus. */
 static inline int32_t client_wants_focus(Client *c) {
 #ifdef XWAYLAND
 	return client_is_unmanaged(c) &&
@@ -498,6 +516,7 @@ static inline int32_t client_wants_focus(Client *c) {
 	return 0;
 }
 
+/* Return non-zero if the client has requested fullscreen mode. */
 static inline int32_t client_wants_fullscreen(Client *c) {
 #ifdef XWAYLAND
 	if (client_is_x11(c))
@@ -506,6 +525,7 @@ static inline int32_t client_wants_fullscreen(Client *c) {
 	return c->surface.xdg->toplevel->requested.fullscreen;
 }
 
+/* Return true if the client has requested to be minimized. */
 static inline bool client_request_minimize(Client *c, void *data) {
 
 #ifdef XWAYLAND
@@ -518,6 +538,7 @@ static inline bool client_request_minimize(Client *c, void *data) {
 	return c->surface.xdg->toplevel->requested.minimized;
 }
 
+/* Return true if the client has requested to be maximized. */
 static inline bool client_request_maximize(Client *c, void *data) {
 
 #ifdef XWAYLAND
@@ -530,6 +551,7 @@ static inline bool client_request_maximize(Client *c, void *data) {
 	return c->surface.xdg->toplevel->requested.maximized;
 }
 
+/* Clamp the client's geometry to its min/max size hints (xdg state or X11 size_hints). */
 static inline void client_set_size_bound(Client *c) {
 	struct wlr_xdg_toplevel *toplevel;
 	struct wlr_xdg_toplevel_state state;

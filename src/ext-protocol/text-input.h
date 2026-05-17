@@ -52,7 +52,6 @@ struct wlr_input_method_manager_v2 *input_method_manager;
 struct wlr_text_input_manager_v3 *text_input_manager;
 struct dwl_input_method_relay *dwl_input_method_relay;
 
-/*-------------------封装给外部调用-------------------------------*/
 bool dwl_im_keyboard_grab_forward_key(KeyboardGroup *keyboard,
 									  struct wlr_keyboard_key_event *event);
 
@@ -64,9 +63,8 @@ void dwl_im_relay_finish(struct dwl_input_method_relay *relay);
 
 void dwl_im_relay_set_focus(struct dwl_input_method_relay *relay,
 							struct wlr_surface *surface);
-/*----------------------------------------------------------*/
 
-/*------------------协议内部代码------------------------------*/
+/* Find the Monitor wrapping a given wlr_output, or NULL if none matches. */
 Monitor *output_from_wlr_output(struct wlr_output *wlr_output) {
 	Monitor *m = NULL;
 	wl_list_for_each(m, &mons, link) {
@@ -77,8 +75,10 @@ Monitor *output_from_wlr_output(struct wlr_output *wlr_output) {
 	return NULL;
 }
 
+/* True if the monitor exists and its underlying wlr_output is enabled. */
 bool output_is_usable(Monitor *m) { return m && m->wlr_output->enabled; }
 
+/* True if the keyboard is a virtual keyboard owned by the same client as the input method. */
 static bool
 is_keyboard_emulated_by_input_method(struct wlr_keyboard *keyboard,
 									 struct wlr_input_method_v2 *input_method) {
@@ -94,6 +94,7 @@ is_keyboard_emulated_by_input_method(struct wlr_keyboard *keyboard,
 			   wl_resource_get_client(input_method->resource);
 }
 
+/* Return the active IME keyboard grab if it applies to this keyboard, otherwise NULL. */
 static struct wlr_input_method_keyboard_grab_v2 *
 get_keyboard_grab(KeyboardGroup *keyboard) {
 	struct wlr_input_method_v2 *input_method =
@@ -102,7 +103,6 @@ get_keyboard_grab(KeyboardGroup *keyboard) {
 		return NULL;
 	}
 
-	// kb_group是一个物理键盘组，它不应该被过滤掉
 	if (keyboard != kb_group)
 		return NULL;
 
@@ -114,6 +114,7 @@ get_keyboard_grab(KeyboardGroup *keyboard) {
 	return input_method->keyboard_grab;
 }
 
+/* Forward modifier state to the active IME keyboard grab; returns false if no grab is active. */
 bool dwl_im_keyboard_grab_forward_modifiers(KeyboardGroup *keyboard) {
 	struct wlr_input_method_keyboard_grab_v2 *keyboard_grab =
 		get_keyboard_grab(keyboard);
@@ -132,6 +133,7 @@ bool dwl_im_keyboard_grab_forward_modifiers(KeyboardGroup *keyboard) {
 	}
 }
 
+/* Forward a key event to the active IME keyboard grab; returns false if no grab is active. */
 bool dwl_im_keyboard_grab_forward_key(KeyboardGroup *keyboard,
 									  struct wlr_keyboard_key_event *event) {
 
@@ -148,6 +150,7 @@ bool dwl_im_keyboard_grab_forward_key(KeyboardGroup *keyboard,
 	}
 }
 
+/* Return the currently focused and enabled text-input in the relay, or NULL. */
 static struct text_input *
 get_active_text_input(struct dwl_input_method_relay *relay) {
 	struct text_input *text_input;
@@ -164,6 +167,7 @@ get_active_text_input(struct dwl_input_method_relay *relay) {
 	return NULL;
 }
 
+/* Sync the IME activate/deactivate state with the currently active text-input. */
 static void update_active_text_input(struct dwl_input_method_relay *relay) {
 	struct text_input *active_text_input = get_active_text_input(relay);
 
@@ -179,6 +183,7 @@ static void update_active_text_input(struct dwl_input_method_relay *relay) {
 	relay->active_text_input = active_text_input;
 }
 
+/* Send enter/leave events to each text-input so its focused_surface matches the relay's. */
 static void
 update_text_inputs_focused_surface(struct dwl_input_method_relay *relay) {
 	struct text_input *text_input;
@@ -206,6 +211,7 @@ update_text_inputs_focused_surface(struct dwl_input_method_relay *relay) {
 	}
 }
 
+/* Place an IME popup near the text-input cursor rectangle, constrained to the nearest output. */
 static void update_popup_position(struct dwl_input_method_popup *popup) {
 	struct dwl_input_method_relay *relay = popup->relay;
 	struct text_input *text_input = relay->active_text_input;
@@ -281,6 +287,7 @@ static void update_popup_position(struct dwl_input_method_popup *popup) {
 							  });
 }
 
+/* Reposition every IME popup attached to this relay. */
 static void update_popups_position(struct dwl_input_method_relay *relay) {
 	struct dwl_input_method_popup *popup;
 	wl_list_for_each(popup, &relay->popups, link) {
@@ -288,6 +295,7 @@ static void update_popups_position(struct dwl_input_method_relay *relay) {
 	}
 }
 
+/* Listener: IME committed — forward preedit/commit/delete strings to the active text-input. */
 static void handle_input_method_commit(struct wl_listener *listener,
 									   void *data) {
 	struct dwl_input_method_relay *relay =
@@ -320,6 +328,7 @@ static void handle_input_method_commit(struct wl_listener *listener,
 	wlr_text_input_v3_send_done(text_input->input);
 }
 
+/* Listener: IME keyboard grab destroyed — resend modifiers on the seat keyboard if any. */
 static void handle_keyboard_grab_destroy(struct wl_listener *listener,
 										 void *data) {
 	struct dwl_input_method_relay *relay =
@@ -333,6 +342,7 @@ static void handle_keyboard_grab_destroy(struct wl_listener *listener,
 	}
 }
 
+/* Listener: IME grab_keyboard — attach the seat keyboard to the grab and watch its destroy. */
 static void handle_input_method_grab_keyboard(struct wl_listener *listener,
 											  void *data) {
 	struct dwl_input_method_relay *relay =
@@ -352,6 +362,7 @@ static void handle_input_method_grab_keyboard(struct wl_listener *listener,
 				  &relay->keyboard_grab_destroy);
 }
 
+/* Listener: input-method destroyed — unhook listeners, clear relay state and resync text-inputs. */
 static void handle_input_method_destroy(struct wl_listener *listener,
 										void *data) {
 	struct dwl_input_method_relay *relay =
@@ -367,6 +378,7 @@ static void handle_input_method_destroy(struct wl_listener *listener,
 	update_active_text_input(relay);
 }
 
+/* Listener: IME popup surface destroyed — tear down its scene tree and free state. */
 static void handle_popup_surface_destroy(struct wl_listener *listener,
 										 void *data) {
 	struct dwl_input_method_popup *popup =
@@ -378,6 +390,7 @@ static void handle_popup_surface_destroy(struct wl_listener *listener,
 	free(popup);
 }
 
+/* Listener: IME popup surface committed — reposition the popup. */
 static void handle_popup_surface_commit(struct wl_listener *listener,
 										void *data) {
 	struct dwl_input_method_popup *popup =
@@ -385,6 +398,7 @@ static void handle_popup_surface_commit(struct wl_listener *listener,
 	update_popup_position(popup);
 }
 
+/* Listener: IME new popup surface — allocate a popup, build its scene tree and hook events. */
 static void handle_input_method_new_popup_surface(struct wl_listener *listener,
 												  void *data) {
 	struct dwl_input_method_relay *relay =
@@ -412,6 +426,7 @@ static void handle_input_method_new_popup_surface(struct wl_listener *listener,
 	update_popup_position(popup);
 }
 
+/* Listener: new input-method bound to our seat — register it on the relay and hook its events. */
 static void handle_new_input_method(struct wl_listener *listener, void *data) {
 	struct dwl_input_method_relay *relay =
 		wl_container_of(listener, relay, new_input_method);
@@ -449,6 +464,7 @@ static void handle_new_input_method(struct wl_listener *listener, void *data) {
 	update_active_text_input(relay);
 }
 
+/* Send surrounding text, change cause and content type from the active text-input to the IME. */
 static void send_state_to_input_method(struct dwl_input_method_relay *relay) {
 
 	struct wlr_input_method_v2 *input_method = relay->input_method;
@@ -471,6 +487,7 @@ static void send_state_to_input_method(struct dwl_input_method_relay *relay) {
 	wlr_input_method_v2_send_done(input_method);
 }
 
+/* Listener: text-input enabled — refresh active state, popups and push state to the IME. */
 static void handle_text_input_enable(struct wl_listener *listener, void *data) {
 	struct text_input *text_input =
 		wl_container_of(listener, text_input, enable);
@@ -484,6 +501,7 @@ static void handle_text_input_enable(struct wl_listener *listener, void *data) {
 	wlr_text_input_v3_send_done(text_input->input);
 }
 
+/* Listener: text-input disabled — refresh which text-input is active. */
 static void handle_text_input_disable(struct wl_listener *listener,
 									  void *data) {
 	struct text_input *text_input =
@@ -492,6 +510,7 @@ static void handle_text_input_disable(struct wl_listener *listener,
 	update_active_text_input(text_input->relay);
 }
 
+/* Listener: text-input committed — reposition popups and push the new state to the IME. */
 static void handle_text_input_commit(struct wl_listener *listener, void *data) {
 	struct text_input *text_input =
 		wl_container_of(listener, text_input, commit);
@@ -503,6 +522,7 @@ static void handle_text_input_commit(struct wl_listener *listener, void *data) {
 	}
 }
 
+/* Listener: text-input destroyed — unhook listeners, remove from relay and free. */
 static void handle_text_input_destroy(struct wl_listener *listener,
 									  void *data) {
 	struct text_input *text_input =
@@ -516,6 +536,7 @@ static void handle_text_input_destroy(struct wl_listener *listener,
 	free(text_input);
 }
 
+/* Listener: new text-input on our seat — allocate it, hook events, and refresh focus. */
 static void handle_new_text_input(struct wl_listener *listener, void *data) {
 	struct dwl_input_method_relay *relay =
 		wl_container_of(listener, relay, new_text_input);
@@ -545,6 +566,7 @@ static void handle_new_text_input(struct wl_listener *listener, void *data) {
 	update_text_inputs_focused_surface(relay);
 }
 
+/* Listener: relay's focused surface destroyed — clear focus on the relay. */
 static void handle_focused_surface_destroy(struct wl_listener *listener,
 										   void *data) {
 	struct dwl_input_method_relay *relay =
@@ -554,6 +576,7 @@ static void handle_focused_surface_destroy(struct wl_listener *listener,
 	dwl_im_relay_set_focus(relay, NULL);
 }
 
+/* Allocate the IME relay, create its popup scene tree and subscribe to text-input/IME signals. */
 struct dwl_input_method_relay *dwl_im_relay_create() {
 	struct dwl_input_method_relay *relay =
 		ecalloc(1, sizeof(struct dwl_input_method_relay));
@@ -574,12 +597,14 @@ struct dwl_input_method_relay *dwl_im_relay_create() {
 	return relay;
 }
 
+/* Tear down the IME relay: unhook signal listeners and free it. */
 void dwl_im_relay_finish(struct dwl_input_method_relay *relay) {
 	wl_list_remove(&relay->new_text_input.link);
 	wl_list_remove(&relay->new_input_method.link);
 	free(relay);
 }
 
+/* Change the relay's focused surface and resync per-text-input focus and IME activation. */
 void dwl_im_relay_set_focus(struct dwl_input_method_relay *relay,
 							struct wlr_surface *surface) {
 	if (relay->focused_surface == surface) {

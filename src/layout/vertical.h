@@ -138,7 +138,6 @@ void vertical_deck(Monitor *m) {
 			break;
 	}
 
-	// Calculate master width using mfact from pertag
 	mfact = fc->master_mfact_per > 0.0f ? fc->master_mfact_per
 										: m->pertag->mfacts[m->pertag->curtag];
 
@@ -212,7 +211,7 @@ void vertical_grid(Monitor *m) {
 
 	if (n == 2) {
 		float row_pers[2] = {1.0f, 1.0f};
-		// 先提取这两个窗口现有的行比例
+		
 		i = 0;
 		wl_list_for_each(c, &clients, link) {
 			if (c->mon != m)
@@ -228,7 +227,7 @@ void vertical_grid(Monitor *m) {
 
 		float sum_row = row_pers[0] + row_pers[1];
 		float avail_h = m->w.height - 2 * target_gappo - target_gappi;
-		cw = (m->w.width - 2 * target_gappo) * 0.65; // 依然保持 0.65 的美观宽度
+		cw = (m->w.width - 2 * target_gappo) * 0.65;
 
 		i = 0;
 		wl_list_for_each(c, &clients, link) {
@@ -241,14 +240,13 @@ void vertical_grid(Monitor *m) {
 				c->grid_col_per = 1.0f;
 				c->grid_row_per = row_pers[i];
 
-				// 根据分配的权重动态计算当前窗口的高度
 				ch = avail_h * (row_pers[i] / sum_row);
 
 				c->geom.x = m->w.x + (m->w.width - cw) / 2 + target_gappo;
 				if (i == 0) {
 					c->geom.y = m->w.y + target_gappo;
 				} else if (i == 1) {
-					// 第二个窗口的 Y 坐标紧跟第一个窗口下面
+					
 					float ch0 = avail_h * (row_pers[0] / sum_row);
 					c->geom.y = m->w.y + target_gappo + ch0 + target_gappi;
 				}

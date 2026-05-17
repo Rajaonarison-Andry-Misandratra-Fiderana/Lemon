@@ -1,3 +1,4 @@
+/* Return the monitor adjacent to selmon in the given wlroots direction, or selmon. */
 Monitor *dirtomon(enum wlr_direction dir) {
 	struct wlr_output *next;
 	if (!wlr_output_layout_get(output_layout, selmon->wlr_output))
@@ -15,6 +16,7 @@ Monitor *dirtomon(enum wlr_direction dir) {
 	return selmon;
 }
 
+/* Return true if monitor m's current layout is one of the scroller variants. */
 bool is_scroller_layout(Monitor *m) {
 
 	if (m->pertag->ltidxs[m->pertag->curtag]->id == SCROLLER)
@@ -26,6 +28,7 @@ bool is_scroller_layout(Monitor *m) {
 	return false;
 }
 
+/* Return true if monitor m's current layout is the center-tile layout. */
 bool is_centertile_layout(Monitor *m) {
 
 	if (m->pertag->ltidxs[m->pertag->curtag]->id == CENTER_TILE)
@@ -34,6 +37,7 @@ bool is_centertile_layout(Monitor *m) {
 	return false;
 }
 
+/* Return 2 if any client on tag is urgent, 1 if occupied, else 0, for monitor m. */
 uint32_t get_tag_status(uint32_t tag, Monitor *m) {
 	Client *c = NULL;
 	uint32_t status = 0;
@@ -49,6 +53,7 @@ uint32_t get_tag_status(uint32_t tag, Monitor *m) {
 	return status;
 }
 
+/* Return the 1-based index of the lowest set tag bit in source_tags, clamped to [1,9]. */
 uint32_t get_tags_first_tag_num(uint32_t source_tags) {
 	uint32_t i, tag;
 	tag = 0;
@@ -71,6 +76,7 @@ uint32_t get_tags_first_tag_num(uint32_t source_tags) {
 }
 
 // 获取tags中最前面的tag的tagmask
+/* Return the bitmask of the lowest set tag bit in source_tags, or current tag if none. */
 uint32_t get_tags_first_tag(uint32_t source_tags) {
 	uint32_t i, tag;
 	tag = 0;
@@ -92,11 +98,13 @@ uint32_t get_tags_first_tag(uint32_t source_tags) {
 	}
 }
 
+/* Return the Monitor at layout coordinates (x,y), or NULL if none. */
 Monitor *xytomon(double x, double y) {
 	struct wlr_output *o = wlr_output_layout_output_at(output_layout, x, y);
 	return o ? o->data : NULL;
 }
 
+/* Return the Monitor whose area is closest to layout coordinates (lx,ly). */
 Monitor *get_monitor_nearest_to(int32_t lx, int32_t ly) {
 	double closest_x, closest_y;
 	wlr_output_layout_closest_point(output_layout, NULL, lx, ly, &closest_x,
@@ -106,6 +114,7 @@ Monitor *get_monitor_nearest_to(int32_t lx, int32_t ly) {
 		wlr_output_layout_output_at(output_layout, closest_x, closest_y));
 }
 
+/* Return true if monitor m matches the spec (name regex or key:value && pairs). */
 bool match_monitor_spec(char *spec, Monitor *m) {
 	if (!spec || !m)
 		return false;

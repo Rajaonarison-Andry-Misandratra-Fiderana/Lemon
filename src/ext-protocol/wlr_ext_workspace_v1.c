@@ -15,39 +15,36 @@ struct wlr_ext_workspace_v1_group_output {
 	struct wl_list link;
 };
 
-// These structs wrap wl_resource of each interface to access the request queue
-// (wlr_ext_workspace_manager_v1_resource.requests) assigned per manager
-// resource
-
 struct wlr_ext_workspace_manager_v1_resource {
 	struct wl_resource *resource;
 	struct wlr_ext_workspace_manager_v1 *manager;
-	struct wl_list requests;			// wlr_ext_workspace_v1_request.link
-	struct wl_list workspace_resources; // wlr_ext_workspace_v1_resource.link
-	struct wl_list group_resources; // wlr_ext_workspace_group_v1_resource.link
-	struct wl_list link;			// wlr_ext_workspace_manager_v1.resources
+	struct wl_list requests;
+	struct wl_list workspace_resources;
+	struct wl_list group_resources;
+	struct wl_list link;
 };
 
 struct wlr_ext_workspace_group_v1_resource {
 	struct wl_resource *resource;
 	struct wlr_ext_workspace_group_handle_v1 *group;
 	struct wlr_ext_workspace_manager_v1_resource *manager;
-	struct wl_list link; // wlr_ext_workspace_group_v1.resources
+	struct wl_list link;
 	struct wl_list
-		manager_resource_link; // wlr_ext_workspace_manager_v1_resource.group_resources
+		manager_resource_link;
 };
 
 struct wlr_ext_workspace_v1_resource {
 	struct wl_resource *resource;
 	struct wlr_ext_workspace_handle_v1 *workspace;
 	struct wlr_ext_workspace_manager_v1_resource *manager;
-	struct wl_list link; // wlr_ext_workspace_v1.resources
+	struct wl_list link;
 	struct wl_list
-		manager_resource_link; // wlr_ext_workspace_manager_v1_resource.workspace_resources
+		manager_resource_link;
 };
 
 static const struct ext_workspace_group_handle_v1_interface group_impl;
 
+/* Type-checked accessor: get the group resource wrapper from a wl_resource. */
 static struct wlr_ext_workspace_group_v1_resource *
 group_resource_from_resource(struct wl_resource *resource) {
 	assert(wl_resource_instance_of(
@@ -57,6 +54,7 @@ group_resource_from_resource(struct wl_resource *resource) {
 
 static const struct ext_workspace_handle_v1_interface workspace_impl;
 
+/* Type-checked accessor: get the workspace resource wrapper from a wl_resource. */
 static struct wlr_ext_workspace_v1_resource *
 workspace_resource_from_resource(struct wl_resource *resource) {
 	assert(wl_resource_instance_of(resource, &ext_workspace_handle_v1_interface,
@@ -66,6 +64,7 @@ workspace_resource_from_resource(struct wl_resource *resource) {
 
 static const struct ext_workspace_manager_v1_interface manager_impl;
 
+/* Type-checked accessor: get the manager resource wrapper from a wl_resource. */
 static struct wlr_ext_workspace_manager_v1_resource *
 manager_resource_from_resource(struct wl_resource *resource) {
 	assert(wl_resource_instance_of(
@@ -73,11 +72,13 @@ manager_resource_from_resource(struct wl_resource *resource) {
 	return wl_resource_get_user_data(resource);
 }
 
+/* Protocol request: client destroys its workspace handle resource. */
 static void workspace_handle_destroy(struct wl_client *client,
 									 struct wl_resource *resource) {
 	wl_resource_destroy(resource);
 }
 
+/* Protocol request: queue an activate request for this workspace, applied on next commit. */
 static void workspace_handle_activate(struct wl_client *client,
 									  struct wl_resource *workspace_resource) {
 	struct wlr_ext_workspace_v1_resource *workspace_res =
@@ -96,6 +97,7 @@ static void workspace_handle_activate(struct wl_client *client,
 	wl_list_insert(workspace_res->manager->requests.prev, &req->link);
 }
 
+/* Protocol request: queue a deactivate request for this workspace. */
 static void
 workspace_handle_deactivate(struct wl_client *client,
 							struct wl_resource *workspace_resource) {
@@ -115,6 +117,7 @@ workspace_handle_deactivate(struct wl_client *client,
 	wl_list_insert(workspace_res->manager->requests.prev, &req->link);
 }
 
+/* Protocol request: queue a request to assign this workspace to a different group. */
 static void workspace_handle_assign(struct wl_client *client,
 									struct wl_resource *workspace_resource,
 									struct wl_resource *group_resource) {
@@ -137,6 +140,7 @@ static void workspace_handle_assign(struct wl_client *client,
 	wl_list_insert(workspace_res->manager->requests.prev, &req->link);
 }
 
+/* Protocol request: queue a request to remove this workspace. */
 static void workspace_handle_remove(struct wl_client *client,
 									struct wl_resource *workspace_resource) {
 	struct wlr_ext_workspace_v1_resource *workspace_res =
@@ -163,6 +167,7 @@ static const struct ext_workspace_handle_v1_interface workspace_impl = {
 	.remove = workspace_handle_remove,
 };
 
+/* Protocol request: queue a request to create a new workspace with the given name in this group. */
 static void group_handle_create_workspace(struct wl_client *client,
 										  struct wl_resource *group_resource,
 										  const char *name) {
@@ -188,6 +193,7 @@ static void group_handle_create_workspace(struct wl_client *client,
 	wl_list_insert(group_res->manager->requests.prev, &req->link);
 }
 
+/* Protocol request: client destroys its group handle resource. */
 static void group_handle_destroy(struct wl_client *client,
 								 struct wl_resource *resource) {
 	wl_resource_destroy(resource);
@@ -198,6 +204,7 @@ static const struct ext_workspace_group_handle_v1_interface group_impl = {
 	.destroy = group_handle_destroy,
 };
 
+/* Unlink a workspace resource wrapper from its lists and free it. */
 static void destroy_workspace_resource(
 	struct wlr_ext_workspace_v1_resource *workspace_res) {
 	wl_list_remove(&workspace_res->link);
@@ -206,6 +213,7 @@ static void destroy_workspace_resource(
 	free(workspace_res);
 }
 
+/* wl_resource destructor for workspace handle: free the wrapper if still attached. */
 static void workspace_resource_destroy(struct wl_resource *resource) {
 	struct wlr_ext_workspace_v1_resource *workspace_res =
 		workspace_resource_from_resource(resource);
@@ -214,6 +222,7 @@ static void workspace_resource_destroy(struct wl_resource *resource) {
 	}
 }
 
+/* Create a workspace handle resource for one client/manager binding and wire it into lists. */
 static struct wlr_ext_workspace_v1_resource *create_workspace_resource(
 	struct wlr_ext_workspace_handle_v1 *workspace,
 	struct wlr_ext_workspace_manager_v1_resource *manager_res) {
@@ -243,6 +252,7 @@ static struct wlr_ext_workspace_v1_resource *create_workspace_resource(
 	return workspace_res;
 }
 
+/* Unlink a group resource wrapper from its lists and free it. */
 static void
 destroy_group_resource(struct wlr_ext_workspace_group_v1_resource *group_res) {
 	wl_list_remove(&group_res->link);
@@ -251,6 +261,7 @@ destroy_group_resource(struct wlr_ext_workspace_group_v1_resource *group_res) {
 	free(group_res);
 }
 
+/* wl_resource destructor for group handle: free the wrapper if still attached. */
 static void group_handle_resource_destroy(struct wl_resource *resource) {
 	struct wlr_ext_workspace_group_v1_resource *group_res =
 		group_resource_from_resource(resource);
@@ -259,6 +270,7 @@ static void group_handle_resource_destroy(struct wl_resource *resource) {
 	}
 }
 
+/* Create a group handle resource for one client/manager binding and wire it into lists. */
 static struct wlr_ext_workspace_group_v1_resource *create_group_resource(
 	struct wlr_ext_workspace_group_handle_v1 *group,
 	struct wlr_ext_workspace_manager_v1_resource *manager_res) {
@@ -288,6 +300,7 @@ static struct wlr_ext_workspace_group_v1_resource *create_group_resource(
 	return group_res;
 }
 
+/* Drain the pending request queue on a manager resource, freeing each request. */
 static void
 destroy_requests(struct wlr_ext_workspace_manager_v1_resource *manager_res) {
 	struct wlr_ext_workspace_v1_request *req, *tmp;
@@ -300,6 +313,7 @@ destroy_requests(struct wlr_ext_workspace_manager_v1_resource *manager_res) {
 	}
 }
 
+/* Null out references to a destroyed group/workspace in any pending requests. */
 static void
 clear_requests_by(struct wlr_ext_workspace_manager_v1_resource *manager_res,
 				  struct wlr_ext_workspace_group_handle_v1 *group,
@@ -339,6 +353,7 @@ clear_requests_by(struct wlr_ext_workspace_manager_v1_resource *manager_res,
 	}
 }
 
+/* Protocol request: commit — emit the queued requests via the manager's commit signal. */
 static void manager_handle_commit(struct wl_client *client,
 								  struct wl_resource *resource) {
 	struct wlr_ext_workspace_manager_v1_resource *manager_res =
@@ -354,6 +369,7 @@ static void manager_handle_commit(struct wl_client *client,
 	destroy_requests(manager_res);
 }
 
+/* Idle callback: send a 'done' event to every bound manager resource. */
 static void handle_idle(void *data) {
 	struct wlr_ext_workspace_manager_v1 *manager = data;
 
@@ -364,6 +380,7 @@ static void handle_idle(void *data) {
 	manager->idle_source = NULL;
 }
 
+/* Arm a single idle source so a 'done' event is sent after the current batch of changes. */
 static void
 manager_schedule_done(struct wlr_ext_workspace_manager_v1 *manager) {
 	if (!manager->idle_source) {
@@ -372,6 +389,7 @@ manager_schedule_done(struct wlr_ext_workspace_manager_v1 *manager) {
 	}
 }
 
+/* Send capabilities, coordinates, name, id and state for a workspace to one client resource. */
 static void
 workspace_send_details(struct wlr_ext_workspace_v1_resource *workspace_res) {
 	struct wlr_ext_workspace_handle_v1 *workspace = workspace_res->workspace;
@@ -392,6 +410,7 @@ workspace_send_details(struct wlr_ext_workspace_v1_resource *workspace_res) {
 	manager_schedule_done(workspace->manager);
 }
 
+/* Protocol request: stop — send finished and destroy the manager resource. */
 static void manager_handle_stop(struct wl_client *client,
 								struct wl_resource *resource) {
 	ext_workspace_manager_v1_send_finished(resource);
@@ -403,6 +422,7 @@ static const struct ext_workspace_manager_v1_interface manager_impl = {
 	.stop = manager_handle_stop,
 };
 
+/* Tear down a manager resource: free pending requests and all child workspace/group resources. */
 static void destroy_manager_resource(
 	struct wlr_ext_workspace_manager_v1_resource *manager_res) {
 	destroy_requests(manager_res);
@@ -424,6 +444,7 @@ static void destroy_manager_resource(
 	free(manager_res);
 }
 
+/* wl_resource destructor for the manager: free the wrapper if still attached. */
 static void manager_resource_destroy(struct wl_resource *resource) {
 	struct wlr_ext_workspace_manager_v1_resource *manager_res =
 		manager_resource_from_resource(resource);
@@ -432,6 +453,7 @@ static void manager_resource_destroy(struct wl_resource *resource) {
 	}
 }
 
+/* Send capabilities and matching output_enter events for a group to one client resource. */
 static void
 group_send_details(struct wlr_ext_workspace_group_v1_resource *group_res) {
 	struct wlr_ext_workspace_group_handle_v1 *group = group_res->group;
@@ -455,6 +477,7 @@ group_send_details(struct wlr_ext_workspace_group_v1_resource *group_res) {
 	manager_schedule_done(group->manager);
 }
 
+/* Global bind: create a manager resource for the client and replay all groups/workspaces. */
 static void manager_bind(struct wl_client *client, void *data, uint32_t version,
 						 uint32_t id) {
 	struct wlr_ext_workspace_manager_v1 *manager = data;
@@ -522,6 +545,7 @@ static void manager_bind(struct wl_client *client, void *data, uint32_t version,
 	ext_workspace_manager_v1_send_done(manager_res->resource);
 }
 
+/* Listener: wl_display destroyed — fire destroy signal and free the manager and all children. */
 static void manager_handle_display_destroy(struct wl_listener *listener,
 										   void *data) {
 	struct wlr_ext_workspace_manager_v1 *manager =
@@ -555,6 +579,7 @@ static void manager_handle_display_destroy(struct wl_listener *listener,
 	free(manager);
 }
 
+/* Create the ext-workspace-v1 global, init lists/signals and watch display destroy. */
 struct wlr_ext_workspace_manager_v1 *
 wlr_ext_workspace_manager_v1_create(struct wl_display *display,
 									uint32_t version) {
@@ -587,6 +612,7 @@ wlr_ext_workspace_manager_v1_create(struct wl_display *display,
 	return manager;
 }
 
+/* Create a new workspace group, advertise it to every bound manager and schedule a done. */
 struct wlr_ext_workspace_group_handle_v1 *
 wlr_ext_workspace_group_handle_v1_create(
 	struct wlr_ext_workspace_manager_v1 *manager, uint32_t caps) {
@@ -621,6 +647,7 @@ wlr_ext_workspace_group_handle_v1_create(
 	return group;
 }
 
+/* Send workspace_enter/workspace_leave on every matching (workspace, group) resource pair. */
 static void
 workspace_send_group(struct wlr_ext_workspace_handle_v1 *workspace,
 					 struct wlr_ext_workspace_group_handle_v1 *group,
@@ -646,6 +673,7 @@ workspace_send_group(struct wlr_ext_workspace_handle_v1 *workspace,
 	manager_schedule_done(workspace->manager);
 }
 
+/* Unlink and free a group/output binding helper, removing its listeners. */
 static void
 destroy_group_output(struct wlr_ext_workspace_v1_group_output *group_output) {
 	wl_list_remove(&group_output->output_bind.link);
@@ -654,6 +682,7 @@ destroy_group_output(struct wlr_ext_workspace_v1_group_output *group_output) {
 	free(group_output);
 }
 
+/* Send output_enter/output_leave for an output on every group resource of matching clients. */
 static void group_send_output(struct wlr_ext_workspace_group_handle_v1 *group,
 							  struct wlr_output *output, bool enter) {
 
@@ -679,6 +708,7 @@ static void group_send_output(struct wlr_ext_workspace_group_handle_v1 *group,
 	manager_schedule_done(group->manager);
 }
 
+/* Destroy a workspace group: detach its workspaces, send removed to clients and free. */
 void wlr_ext_workspace_group_handle_v1_destroy(
 	struct wlr_ext_workspace_group_handle_v1 *group) {
 	if (!group) {
@@ -720,6 +750,7 @@ void wlr_ext_workspace_group_handle_v1_destroy(
 	free(group);
 }
 
+/* Listener: a client newly bound to an output — send output_enter for any group on that output. */
 static void handle_output_bind(struct wl_listener *listener, void *data) {
 	struct wlr_ext_workspace_v1_group_output *group_output =
 		wl_container_of(listener, group_output, output_bind);
@@ -737,6 +768,7 @@ static void handle_output_bind(struct wl_listener *listener, void *data) {
 	manager_schedule_done(group_output->group->manager);
 }
 
+/* Listener: output destroyed — emit output_leave and tear down its group binding. */
 static void handle_output_destroy(struct wl_listener *listener, void *data) {
 	struct wlr_ext_workspace_v1_group_output *group_output =
 		wl_container_of(listener, group_output, output_destroy);
@@ -744,6 +776,7 @@ static void handle_output_destroy(struct wl_listener *listener, void *data) {
 	destroy_group_output(group_output);
 }
 
+/* Look up the binding between a group and a given output, or NULL. */
 static struct wlr_ext_workspace_v1_group_output *
 get_group_output(struct wlr_ext_workspace_group_handle_v1 *group,
 				 struct wlr_output *output) {
@@ -756,6 +789,7 @@ get_group_output(struct wlr_ext_workspace_group_handle_v1 *group,
 	return NULL;
 }
 
+/* Bind a group to an output, hook bind/destroy listeners and broadcast output_enter. */
 void wlr_ext_workspace_group_handle_v1_output_enter(
 	struct wlr_ext_workspace_group_handle_v1 *group,
 	struct wlr_output *output) {
@@ -779,6 +813,7 @@ void wlr_ext_workspace_group_handle_v1_output_enter(
 	group_send_output(group, output, true);
 }
 
+/* Remove a group's binding to an output and broadcast output_leave. */
 void wlr_ext_workspace_group_handle_v1_output_leave(
 	struct wlr_ext_workspace_group_handle_v1 *group,
 	struct wlr_output *output) {
@@ -792,6 +827,7 @@ void wlr_ext_workspace_group_handle_v1_output_leave(
 	destroy_group_output(group_output);
 }
 
+/* Create a new workspace handle, advertise it to every bound manager and schedule a done. */
 struct wlr_ext_workspace_handle_v1 *
 wlr_ext_workspace_handle_v1_create(struct wlr_ext_workspace_manager_v1 *manager,
 								   const char *id, uint32_t caps) {
@@ -835,6 +871,7 @@ wlr_ext_workspace_handle_v1_create(struct wlr_ext_workspace_manager_v1 *manager,
 	return workspace;
 }
 
+/* Destroy a workspace handle: send removed to clients, drop pending requests and free state. */
 void wlr_ext_workspace_handle_v1_destroy(
 	struct wlr_ext_workspace_handle_v1 *workspace) {
 	if (!workspace) {
@@ -869,6 +906,7 @@ void wlr_ext_workspace_handle_v1_destroy(
 	free(workspace);
 }
 
+/* Reassign a workspace to a different group, sending leave/enter events as needed. */
 void wlr_ext_workspace_handle_v1_set_group(
 	struct wlr_ext_workspace_handle_v1 *workspace,
 	struct wlr_ext_workspace_group_handle_v1 *group) {
@@ -885,6 +923,7 @@ void wlr_ext_workspace_handle_v1_set_group(
 	}
 }
 
+/* Update a workspace's display name and broadcast the new name to subscribers. */
 void wlr_ext_workspace_handle_v1_set_name(
 	struct wlr_ext_workspace_handle_v1 *workspace, const char *name) {
 	assert(name);
@@ -908,6 +947,7 @@ void wlr_ext_workspace_handle_v1_set_name(
 	manager_schedule_done(workspace->manager);
 }
 
+/* Update a workspace's coordinate array and broadcast the new coordinates if they changed. */
 void wlr_ext_workspace_handle_v1_set_coordinates(
 	struct wlr_ext_workspace_handle_v1 *workspace, const uint32_t *coords,
 	size_t coords_len) {
@@ -934,6 +974,7 @@ void wlr_ext_workspace_handle_v1_set_coordinates(
 	manager_schedule_done(workspace->manager);
 }
 
+/* Set or clear a state bit on a workspace and broadcast the new state on change. */
 static void workspace_set_state(struct wlr_ext_workspace_handle_v1 *workspace,
 								enum ext_workspace_handle_v1_state state,
 								bool enabled) {
@@ -956,18 +997,21 @@ static void workspace_set_state(struct wlr_ext_workspace_handle_v1 *workspace,
 	manager_schedule_done(workspace->manager);
 }
 
+/* Toggle the ACTIVE state bit on a workspace. */
 void wlr_ext_workspace_handle_v1_set_active(
 	struct wlr_ext_workspace_handle_v1 *workspace, bool enabled) {
 	workspace_set_state(workspace, EXT_WORKSPACE_HANDLE_V1_STATE_ACTIVE,
 						enabled);
 }
 
+/* Toggle the URGENT state bit on a workspace. */
 void wlr_ext_workspace_handle_v1_set_urgent(
 	struct wlr_ext_workspace_handle_v1 *workspace, bool enabled) {
 	workspace_set_state(workspace, EXT_WORKSPACE_HANDLE_V1_STATE_URGENT,
 						enabled);
 }
 
+/* Toggle the HIDDEN state bit on a workspace. */
 void wlr_ext_workspace_handle_v1_set_hidden(
 	struct wlr_ext_workspace_handle_v1 *workspace, bool enabled) {
 	workspace_set_state(workspace, EXT_WORKSPACE_HANDLE_V1_STATE_HIDDEN,

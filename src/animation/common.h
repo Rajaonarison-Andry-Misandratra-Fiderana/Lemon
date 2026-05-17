@@ -1,3 +1,4 @@
+/* Return the bezier control-point array configured for the given animation type. */
 static inline double *animation_curve_for_type(int32_t type) {
 	switch (type) {
 	case OPEN:       return config.animation_curve_open;
@@ -11,6 +12,7 @@ static inline double *animation_curve_for_type(int32_t type) {
 	}
 }
 
+/* Evaluate the cubic-bezier curve of the given type at parameter t and return the (x,y) point. */
 struct dvec2 calculate_animation_curve_at(double t, int32_t type) {
 	struct dvec2 point;
 	double *animation_curve = animation_curve_for_type(type);
@@ -27,6 +29,7 @@ struct dvec2 calculate_animation_curve_at(double t, int32_t type) {
 	return point;
 }
 
+/* Precompute lookup tables of bezier samples for each animation curve at startup. */
 void init_baked_points(void) {
 	struct dvec2 **tables[] = {
 		&baked_points_move, &baked_points_open, &baked_points_tag,
@@ -45,6 +48,7 @@ void init_baked_points(void) {
 	}
 }
 
+/* Return the precomputed baked-points table for the given animation type. */
 static inline struct dvec2 *baked_points_for_type(int32_t type) {
 	switch (type) {
 	case OPEN:       return baked_points_open;
@@ -58,6 +62,7 @@ static inline struct dvec2 *baked_points_for_type(int32_t type) {
 	}
 }
 
+/* Look up the eased y-value at progress t using binary search over the baked curve points. */
 double find_animation_curve_at(double t, int32_t type) {
 	struct dvec2 *baked_points = baked_points_for_type(type);
 	if (t <= 0.0) return baked_points[0].y;
@@ -76,6 +81,7 @@ double find_animation_curve_at(double t, int32_t type) {
 	return baked_points[up].y;
 }
 
+/* Recursively snapshot a scene node subtree into a new tree, copying buffer and shadow state. */
 static bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx,
 								int32_t ly,
 								struct wlr_scene_tree *snapshot_tree) {
@@ -122,7 +128,6 @@ static bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx,
 		wlr_scene_buffer_set_filter_mode(snapshot_buffer,
 										 scene_buffer->filter_mode);
 
-		// Effects
 		wlr_scene_buffer_set_opacity(snapshot_buffer, scene_buffer->opacity);
 		wlr_scene_buffer_set_corner_radius(snapshot_buffer,
 										   scene_buffer->corner_radius,
@@ -175,6 +180,7 @@ static bool scene_node_snapshot(struct wlr_scene_node *node, int32_t lx,
 	return true;
 }
 
+/* Create a detached snapshot scene tree of node under parent, for use in fade-out animations. */
 struct wlr_scene_tree *wlr_scene_tree_snapshot(struct wlr_scene_node *node,
 											   struct wlr_scene_tree *parent) {
 	struct wlr_scene_tree *snapshot = wlr_scene_tree_create(parent);
@@ -182,8 +188,6 @@ struct wlr_scene_tree *wlr_scene_tree_snapshot(struct wlr_scene_node *node,
 		return NULL;
 	}
 
-	// Disable and enable the snapshot tree like so to atomically update
-	// the scene-graph. This will prevent over-damaging or other weirdness.
 	wlr_scene_node_set_enabled(&snapshot->node, false);
 
 	if (!scene_node_snapshot(node, 0, 0, snapshot)) {
@@ -196,6 +200,7 @@ struct wlr_scene_tree *wlr_scene_tree_snapshot(struct wlr_scene_node *node,
 	return snapshot;
 }
 
+/* Schedule a new frame on every enabled monitor to drive animation ticks. */
 void request_fresh_all_monitors(void) {
 	Monitor *m = NULL;
 	wl_list_for_each(m, &mons, link) {

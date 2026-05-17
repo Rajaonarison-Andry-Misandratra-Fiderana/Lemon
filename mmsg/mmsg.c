@@ -67,32 +67,37 @@ static DYNARR_DEF(struct output) outputs;
 static struct wl_display *display;
 static struct zdwl_ipc_manager_v2 *dwl_ipc_manager;
 
-// 为每个回调定义专用的空函数
+/* No-op wl_output geometry listener — required by interface but unused here. */
 static void noop_geometry(void *data, struct wl_output *wl_output, int32_t x,
 						  int32_t y, int32_t physical_width,
 						  int32_t physical_height, int32_t subpixel,
 						  const char *make, const char *model,
 						  int32_t transform) {}
 
+/* No-op wl_output mode listener — required by interface but unused here. */
 static void noop_mode(void *data, struct wl_output *wl_output, uint32_t flags,
 					  int32_t width, int32_t height, int32_t refresh) {}
 
+/* No-op wl_output done listener — required by interface but unused here. */
 static void noop_done(void *data, struct wl_output *wl_output) {}
 
+/* No-op wl_output scale listener — required by interface but unused here. */
 static void noop_scale(void *data, struct wl_output *wl_output,
 					   int32_t factor) {}
 
+/* No-op wl_output description listener — required by interface but unused here. */
 static void noop_description(void *data, struct wl_output *wl_output,
 							 const char *description) {}
 
-// 将 n 转换为 9 位二进制字符串，结果存入 buf（至少长度 10）
+/* Format the low 9 bits of n as a NUL-terminated MSB-first binary string into buf. */
 void bin_str_9bits(char *buf, uint32_t n) {
 	for (int32_t i = 8; i >= 0; i--) {
 		*buf++ = ((n >> i) & 1) ? '1' : '0';
 	}
-	*buf = '\0'; // 字符串结尾
+	*buf = '\0';
 }
 
+/* IPC manager tags event: record tag count and print it when -T is set in get mode. */
 static void dwl_ipc_tags(void *data,
 						 struct zdwl_ipc_manager_v2 *dwl_ipc_manager,
 						 uint32_t count) {
@@ -101,6 +106,7 @@ static void dwl_ipc_tags(void *data,
 		printf("%d\n", tagcount);
 }
 
+/* IPC manager layout event: resolve layout index for -l set, or print layouts for -L get. */
 static void dwl_ipc_layout(void *data,
 						   struct zdwl_ipc_manager_v2 *dwl_ipc_manager,
 						   const char *name) {
@@ -114,6 +120,7 @@ static void dwl_ipc_layout(void *data,
 static const struct zdwl_ipc_manager_v2_listener dwl_ipc_listener = {
 	.tags = dwl_ipc_tags, .layout = dwl_ipc_layout};
 
+/* Per-output toggle_visibility event: print a "toggle" line when -v is requested. */
 static void
 dwl_ipc_output_toggle_visibility(void *data,
 								 struct zdwl_ipc_output_v2 *dwl_ipc_output) {
@@ -125,6 +132,7 @@ dwl_ipc_output_toggle_visibility(void *data,
 	printf("toggle\n");
 }
 
+/* Per-output active event: auto-pick the active output in set mode, or print selmon for -o get. */
 static void dwl_ipc_output_active(void *data,
 								  struct zdwl_ipc_output_v2 *dwl_ipc_output,
 								  uint32_t active) {
@@ -139,6 +147,7 @@ static void dwl_ipc_output_active(void *data,
 	printf("selmon %u\n", active ? 1 : 0);
 }
 
+/* Per-output tag event: accumulate selected/urgent/occupied tag bitmasks and print per-tag info. */
 static void dwl_ipc_output_tag(void *data,
 							   struct zdwl_ipc_output_v2 *dwl_ipc_output,
 							   uint32_t tag, uint32_t state, uint32_t clients,
@@ -152,7 +161,6 @@ static void dwl_ipc_output_tag(void *data,
 	if (clients > 0)
 		occ |= 1 << tag;
 
-	// 累计所有 tag 的 clients 总数
 	total_clients += clients;
 
 	if (!(mode & GET))
@@ -163,10 +171,12 @@ static void dwl_ipc_output_tag(void *data,
 	printf("tag %u %u %u %u\n", tag + 1, state, clients, focused);
 }
 
+/* Per-output numeric layout event: unused; layout reporting goes through layout_symbol instead. */
 static void dwl_ipc_output_layout(void *data,
 								  struct zdwl_ipc_output_v2 *dwl_ipc_output,
 								  uint32_t layout) {}
 
+/* Per-output layout_symbol event: print the current layout's display symbol when -l get is set. */
 static void dwl_ipc_output_layout_symbol(
 	void *data, struct zdwl_ipc_output_v2 *dwl_ipc_output, const char *layout) {
 	if (!(lflag && mode & GET))
@@ -177,6 +187,7 @@ static void dwl_ipc_output_layout_symbol(
 	printf("layout %s\n", layout);
 }
 
+/* Per-output title event: print the focused client's window title when -c get is set. */
 static void dwl_ipc_output_title(void *data,
 								 struct zdwl_ipc_output_v2 *dwl_ipc_output,
 								 const char *title) {
@@ -188,6 +199,7 @@ static void dwl_ipc_output_title(void *data,
 	printf("title %s\n", title);
 }
 
+/* Per-output appid event: print the focused client's app-id when -c get is set. */
 static void dwl_ipc_output_appid(void *data,
 								 struct zdwl_ipc_output_v2 *dwl_ipc_output,
 								 const char *appid) {
@@ -199,6 +211,7 @@ static void dwl_ipc_output_appid(void *data,
 	printf("appid %s\n", appid);
 }
 
+/* Per-output x event: print the focused client's x coordinate when -x is set. */
 static void dwl_ipc_output_x(void *data,
 							 struct zdwl_ipc_output_v2 *dwl_ipc_output,
 							 int32_t x) {
@@ -210,6 +223,7 @@ static void dwl_ipc_output_x(void *data,
 	printf("x %d\n", x);
 }
 
+/* Per-output y event: print the focused client's y coordinate when -x is set. */
 static void dwl_ipc_output_y(void *data,
 							 struct zdwl_ipc_output_v2 *dwl_ipc_output,
 							 int32_t y) {
@@ -221,6 +235,7 @@ static void dwl_ipc_output_y(void *data,
 	printf("y %d\n", y);
 }
 
+/* Per-output width event: print the focused client's width when -x is set. */
 static void dwl_ipc_output_width(void *data,
 								 struct zdwl_ipc_output_v2 *dwl_ipc_output,
 								 int32_t width) {
@@ -232,6 +247,7 @@ static void dwl_ipc_output_width(void *data,
 	printf("width %d\n", width);
 }
 
+/* Per-output height event: print the focused client's height when -x is set. */
 static void dwl_ipc_output_height(void *data,
 								  struct zdwl_ipc_output_v2 *dwl_ipc_output,
 								  int32_t height) {
@@ -243,6 +259,7 @@ static void dwl_ipc_output_height(void *data,
 	printf("height %d\n", height);
 }
 
+/* Per-output last_layer event: print the name of the most recently focused layer when -e is set. */
 static void dwl_ipc_output_last_layer(void *data,
 									  struct zdwl_ipc_output_v2 *dwl_ipc_output,
 									  const char *last_layer) {
@@ -254,6 +271,7 @@ static void dwl_ipc_output_last_layer(void *data,
 	printf("last_layer %s\n", last_layer);
 }
 
+/* Per-output kb_layout event: print the current keyboard layout when -k is set. */
 static void dwl_ipc_output_kb_layout(void *data,
 									 struct zdwl_ipc_output_v2 *dwl_ipc_output,
 									 const char *kb_layout) {
@@ -265,6 +283,7 @@ static void dwl_ipc_output_kb_layout(void *data,
 	printf("kb_layout %s\n", kb_layout);
 }
 
+/* Per-output scalefactor event: print monitor scale (centipercent → float) when -A is set. */
 static void
 dwl_ipc_output_scalefactor(void *data,
 						   struct zdwl_ipc_output_v2 *dwl_ipc_output,
@@ -277,6 +296,7 @@ dwl_ipc_output_scalefactor(void *data,
 	printf("scale_factor %f\n", scalefactor / 100.0f);
 }
 
+/* Per-output keymode event: print the active keybinding mode when -b is set. */
 static void dwl_ipc_output_keymode(void *data,
 								   struct zdwl_ipc_output_v2 *dwl_ipc_output,
 								   const char *keymode) {
@@ -288,6 +308,7 @@ static void dwl_ipc_output_keymode(void *data,
 	printf("keymode %s\n", keymode);
 }
 
+/* Per-output fullscreen event: print the focused client's fullscreen state when -m is set. */
 static void dwl_ipc_output_fullscreen(void *data,
 									  struct zdwl_ipc_output_v2 *dwl_ipc_output,
 									  uint32_t is_fullscreen) {
@@ -299,6 +320,7 @@ static void dwl_ipc_output_fullscreen(void *data,
 	printf("fullscreen %u\n", is_fullscreen);
 }
 
+/* Per-output floating event: print the focused client's floating state when -f is set. */
 static void dwl_ipc_output_floating(void *data,
 									struct zdwl_ipc_output_v2 *dwl_ipc_output,
 									uint32_t is_floating) {
@@ -310,6 +332,7 @@ static void dwl_ipc_output_floating(void *data,
 	printf("floating %u\n", is_floating);
 }
 
+/* Per-output frame event: end of a batch — apply set actions (tags/layout/dispatch/quit) or print accumulated get info. */
 static void dwl_ipc_output_frame(void *data,
 								 struct zdwl_ipc_output_v2 *dwl_ipc_output) {
 	if (mode & SET) {
@@ -430,6 +453,7 @@ static const struct zdwl_ipc_output_v2_listener dwl_ipc_output_listener = {
 	.frame = dwl_ipc_output_frame,
 };
 
+/* wl_output name listener: track output names, filter by -o, and bind an IPC output listener. */
 static void wl_output_name(void *data, struct wl_output *output,
 						   const char *name) {
 	if (outputs.arr) {
@@ -458,6 +482,7 @@ static const struct wl_output_listener output_listener = {
 	.description = noop_description,
 };
 
+/* Registry global handler: bind wl_output instances and the dwl-ipc-manager when advertised. */
 static void global_add(void *data, struct wl_registry *wl_registry,
 					   uint32_t name, const char *interface, uint32_t version) {
 	if (strcmp(interface, wl_output_interface.name) == 0) {
@@ -479,6 +504,7 @@ static void global_add(void *data, struct wl_registry *wl_registry,
 	}
 }
 
+/* Registry global_remove handler: drop the matching tracked output and announce its removal. */
 static void global_remove(void *data, struct wl_registry *wl_registry,
 						  uint32_t name) {
 	if (!outputs.arr)
@@ -498,6 +524,7 @@ static const struct wl_registry_listener registry_listener = {
 	.global_remove = global_remove,
 };
 
+/* Print the mmsg synopsis/options help to stderr and exit with status 2. */
 static void usage(void) {
 	fprintf(stderr,
 			"mmsg - LemonWM IPC\n"
@@ -545,6 +572,7 @@ static void usage(void) {
 	exit(2);
 }
 
+/* Entry point: parse argv, connect to compositor via dwl-ipc, drive mode (set/get/watch). */
 int32_t main(int32_t argc, char *argv[]) {
 	ARGBEGIN {
 	case 'q':

@@ -8,13 +8,11 @@
 #define SYSCONFDIR "/etc"
 #endif
 
-// 整数版本 - 截断小数部分
 #define CLAMP_INT(x, min, max)                                                 \
 	((int32_t)(x) < (int32_t)(min)                                             \
 		 ? (int32_t)(min)                                                      \
 		 : ((int32_t)(x) > (int32_t)(max) ? (int32_t)(max) : (int32_t)(x)))
 
-// 浮点数版本 - 保留小数部分
 #define CLAMP_FLOAT(x, min, max)                                               \
 	((x) < (min) ? (min) : ((x) > (max) ? (max) : (x)))
 
@@ -104,18 +102,17 @@ typedef struct {
 } ConfigWinRule;
 
 typedef struct {
-	const char *name;			 // Monitor name
-	char *make, *model, *serial; // may be NULL
-	int32_t rr;					 // Rotate and flip (assume integer)
-	float scale;				 // Monitor scale factor
-	int32_t x, y;				 // Monitor position
-	int32_t width, height;		 // Monitor resolution
-	float refresh;				 // Refresh rate
-	int32_t vrr;				 // variable refresh rate
-	int32_t custom;				 // enable custom mode
+	const char *name;
+	char *make, *model, *serial;
+	int32_t rr;
+	float scale;
+	int32_t x, y;
+	int32_t width, height;
+	float refresh;
+	int32_t vrr;
+	int32_t custom;
 } ConfigMonitorRule;
 
-// 修改后的宏定义
 #define CHVT(n)                                                                \
 	{                                                                          \
 		WLR_MODIFIER_CTRL | WLR_MODIFIER_ALT,                                  \
@@ -125,7 +122,6 @@ typedef struct {
 		}                                                                      \
 	}
 
-// 默认按键绑定数组
 KeyBinding default_key_bindings[] = {CHVT(1), CHVT(2),	CHVT(3),  CHVT(4),
 									 CHVT(5), CHVT(6),	CHVT(7),  CHVT(8),
 									 CHVT(9), CHVT(10), CHVT(11), CHVT(12)};
@@ -173,7 +169,7 @@ typedef struct {
 } ConfigTagRule;
 
 typedef struct {
-	char *layer_name; // 布局名称
+	char *layer_name;
 	char *animation_type_open;
 	char *animation_type_close;
 	int32_t noblur;
@@ -242,7 +238,6 @@ typedef struct {
 	int32_t center_master_overspread;
 	int32_t center_when_single_stack;
 
-	/* dwindle layout */
 	int32_t dwindle_vsplit;
 	int32_t dwindle_hsplit;
 	int32_t dwindle_preserve_split;
@@ -268,12 +263,10 @@ typedef struct {
 	int32_t drag_corner;
 	int32_t drag_warp_cursor;
 
-	/* keyboard */
 	int32_t repeat_rate;
 	int32_t repeat_delay;
 	uint32_t numlockon;
 
-	/* common pointer */
 	int32_t disable_while_typing;
 	int32_t left_handed;
 	int32_t middle_button_emulation;
@@ -282,13 +275,11 @@ typedef struct {
 	uint32_t click_method;
 	uint32_t send_events_mode;
 
-	/* mouse */
 	int32_t mouse_natural_scrolling;
 	uint32_t mouse_accel_profile;
 	double mouse_accel_speed;
 	double axis_scroll_factor;
 
-	/* Trackpad */
 	int32_t trackpad_natural_scrolling;
 	uint32_t trackpad_accel_profile;
 	double trackpad_accel_speed;
@@ -299,7 +290,6 @@ typedef struct {
 	int32_t drag_lock;
 	uint32_t button_map;
 
-	/* window effects */
 	int32_t blur;
 	int32_t blur_layer;
 	int32_t blur_optimized;
@@ -315,7 +305,6 @@ typedef struct {
 	int32_t shadows_position_y;
 	float shadowscolor[4];
 
-	/* appearance */
 	int32_t smartgaps;
 	uint32_t gappih;
 	uint32_t gappiv;
@@ -338,17 +327,17 @@ typedef struct {
 	int32_t log_level;
 	uint32_t capslock;
 
-	ConfigTagRule *tag_rules; // 动态数组
-	int32_t tag_rules_count;  // 数量
+	ConfigTagRule *tag_rules;
+	int32_t tag_rules_count;
 
-	ConfigLayerRule *layer_rules; // 动态数组
-	int32_t layer_rules_count;	  // 数量
+	ConfigLayerRule *layer_rules;
+	int32_t layer_rules_count;
 
 	ConfigWinRule *window_rules;
 	int32_t window_rules_count;
 
-	ConfigMonitorRule *monitor_rules; // 动态数组
-	int32_t monitor_rules_count;	  // 条数
+	ConfigMonitorRule *monitor_rules;
+	int32_t monitor_rules_count;
 
 	KeyBinding *key_bindings;
 	int32_t key_bindings_count;
@@ -407,39 +396,35 @@ bool apply_rule_to_state(Monitor *m, const ConfigMonitorRule *rule,
 						 struct wlr_output_state *state, int vrr, int custom);
 bool monitor_matches_rule(Monitor *m, const ConfigMonitorRule *rule);
 
-// Helper function to trim whitespace from start and end of a string
+/* Strip leading and trailing whitespace from str in place. */
 void trim_whitespace(char *str) {
 	if (str == NULL || *str == '\0')
 		return;
 
-	// Trim leading space
 	char *start = str;
 	while (isspace((unsigned char)*start)) {
 		start++;
 	}
 
-	// Trim trailing space
 	char *end = str + strlen(str) - 1;
 	while (end > start && isspace((unsigned char)*end)) {
 		end--;
 	}
 
-	// Null-terminate the trimmed string
 	*(end + 1) = '\0';
 
-	// Move the trimmed part to the beginning if needed
 	if (start != str) {
-		memmove(str, start, end - start + 2); // +2 to include null terminator
+		memmove(str, start, end - start + 2);
 	}
 }
 
+/* Parse a comma-separated list of doubles from input into output; returns parsed count or -1 on error. */
 int32_t parse_double_array(const char *input, double *output,
 						   int32_t max_count) {
 	char *dup = strdup(input);
 	char *token;
 	int32_t count = 0;
 
-	// 先清空整个数组
 	memset(output, 0, max_count * sizeof(double));
 
 	token = strtok(dup, ",");
@@ -455,8 +440,8 @@ int32_t parse_double_array(const char *input, double *output,
 			free(dup);
 			return -1;
 		}
-		output[count] = val; // 赋值到当前count位置
-		count++;			 // 然后才自增
+		output[count] = val;
+		count++;
 		token = strtok(NULL, ",");
 	}
 
@@ -464,12 +449,12 @@ int32_t parse_double_array(const char *input, double *output,
 	return count;
 }
 
-// 清理字符串中的不可见字符（包括 \r, \n, 空格等）
+/* Trim leading and trailing non-printable characters from str and return the trimmed pointer. */
 char *sanitize_string(char *str) {
-	// 去除首部不可见字符
+	
 	while (*str != '\0' && !isprint((unsigned char)*str))
 		str++;
-	// 去除尾部不可见字符
+	
 	char *end = str + strlen(str) - 1;
 	while (end > str && !isprint((unsigned char)*end))
 		end--;
@@ -477,17 +462,15 @@ char *sanitize_string(char *str) {
 	return str;
 }
 
-// 解析bind组合字符串
+/* Decode the suffix flags (s/l/r/p) of a "bind*" config key and apply them to the KeyBinding. */
 void parse_bind_flags(const char *str, KeyBinding *kb) {
 
-	// 检查是否以"bind"开头
 	if (strncmp(str, "bind", 4) != 0) {
 		return;
 	}
 
-	const char *suffix = str + 4; // 跳过"bind"
+	const char *suffix = str + 4;
 
-	// 遍历后缀字符
 	for (int32_t i = 0; suffix[i] != '\0'; i++) {
 		switch (suffix[i]) {
 		case 's':
@@ -513,6 +496,7 @@ void parse_bind_flags(const char *str, KeyBinding *kb) {
 
 typedef struct { const char *name; int32_t value; } enum_entry_t;
 
+/* Case-insensitive lookup of str in an enum_entry_t map; returns matched value or fallback. */
 static int32_t parse_enum_ci(const char *str, const enum_entry_t *map,
                              size_t count, int32_t fallback) {
 	char lowerStr[16];
@@ -530,6 +514,7 @@ static int32_t parse_enum_ci(const char *str, const enum_entry_t *map,
 	return fallback;
 }
 
+/* Parse a circular iteration direction string ("next"/"prev") into the matching enum value. */
 int32_t parse_circle_direction(const char *str) {
 	static const enum_entry_t map[] = {
 		{"next", NEXT},
@@ -537,6 +522,7 @@ int32_t parse_circle_direction(const char *str) {
 	return parse_enum_ci(str, map, sizeof(map)/sizeof(map[0]), PREV);
 }
 
+/* Parse a cardinal direction string (up/down/left/right) into the matching enum value. */
 int32_t parse_direction(const char *str) {
 	static const enum_entry_t map[] = {
 		{"up", UP}, {"down", DOWN}, {"left", LEFT}, {"right", RIGHT},
@@ -544,12 +530,14 @@ int32_t parse_direction(const char *str) {
 	return parse_enum_ci(str, map, sizeof(map)/sizeof(map[0]), UNDIR);
 }
 
+/* Parse a switch fold state string ("fold"/"unfold") into the matching enum value. */
 int32_t parse_fold_state(const char *str) {
 	static const enum_entry_t map[] = {
 		{"fold", FOLD}, {"unfold", UNFOLD},
 	};
 	return parse_enum_ci(str, map, sizeof(map)/sizeof(map[0]), INVALIDFOLD);
 }
+/* Parse a hexadecimal color string into a 64-bit integer; returns -1 on parse failure. */
 int64_t parse_color(const char *hex_str) {
 	char *endptr;
 	int64_t hex_num = strtol(hex_str, &endptr, 16);
@@ -559,7 +547,7 @@ int64_t parse_color(const char *hex_str) {
 	return hex_num;
 }
 
-// 辅助函数：检查字符串是否以指定的前缀开头（忽略大小写）
+/* Return true if str starts with prefix, comparing case-insensitively. */
 static bool starts_with_ignore_case(const char *str, const char *prefix) {
 	while (*prefix) {
 		if (tolower(*str) != tolower(*prefix)) {
@@ -571,11 +559,12 @@ static bool starts_with_ignore_case(const char *str, const char *prefix) {
 	return true;
 }
 
+/* Join values[] with commas up to the first empty/"0" entry; returns a newly malloc'd string. */
 static char *combine_args_until_empty(char *values[], int count) {
-	// find the first empty string
+	
 	int first_empty = count;
 	for (int i = 0; i < count; i++) {
-		// check if it's empty: empty string or only contains "0" (initialized)
+		
 		if (values[i][0] == '\0' ||
 			(strlen(values[i]) == 1 && values[i][0] == '0')) {
 			first_empty = i;
@@ -583,20 +572,17 @@ static char *combine_args_until_empty(char *values[], int count) {
 		}
 	}
 
-	// 	if there are no valid parameters, return an empty string
 	if (first_empty == 0) {
 		return strdup("");
 	}
 
-	// 	calculate the total length
 	size_t total_len = 0;
 	for (int i = 0; i < first_empty; i++) {
 		total_len += strlen(values[i]);
 	}
-	// 	plus the number of commas (first_empty-1 commas)
+	
 	total_len += (first_empty - 1);
 
-	// 	allocate memory and concatenate
 	char *combined = malloc(total_len + 1);
 	if (combined == NULL) {
 		return strdup("");
@@ -613,6 +599,7 @@ static char *combine_args_until_empty(char *values[], int count) {
 	return combined;
 }
 
+/* Parse a "+"-separated modifier string (e.g. "super+shift") into a WLR modifier mask. */
 uint32_t parse_mod(const char *mod_str) {
 	if (!mod_str || !*mod_str) {
 		return UINT32_MAX;
@@ -624,27 +611,24 @@ uint32_t parse_mod(const char *mod_str) {
 	char *saveptr = NULL;
 	bool match_success = false;
 
-	// 复制并转换为小写
 	strncpy(input_copy, mod_str, sizeof(input_copy) - 1);
 	input_copy[sizeof(input_copy) - 1] = '\0';
 	for (char *p = input_copy; *p; p++) {
 		*p = tolower(*p);
 	}
 
-	// 分割处理每个部分
 	token = strtok_r(input_copy, "+", &saveptr);
 	while (token != NULL) {
-		// 去除前后空白
+		
 		trim_whitespace(token);
 
-		// 如果 token 变成空字符串则跳过
 		if (*token == '\0') {
 			token = strtok_r(NULL, "+", &saveptr);
 			continue;
 		}
 
 		if (strncmp(token, "code:", 5) == 0) {
-			// 处理 code: 形式
+			
 			char *endptr;
 			long keycode = strtol(token + 5, &endptr, 10);
 			if (endptr != token + 5 && (*endptr == '\0' || *endptr == ' ')) {
@@ -717,7 +701,7 @@ uint32_t parse_mod(const char *mod_str) {
 	return mod;
 }
 
-// 定义辅助函数：在 keymap 中查找 keysym 对应的多个 keycode
+/* Scan the keymap for keycodes that produce sym and fill up to three of them into multi_kc. */
 static int32_t find_keycodes_for_keysym(struct xkb_keymap *keymap,
 										xkb_keysym_t sym,
 										MultiKeycode *multi_kc) {
@@ -732,7 +716,7 @@ static int32_t find_keycodes_for_keysym(struct xkb_keymap *keymap,
 
 	for (xkb_keycode_t keycode = min_keycode;
 		 keycode <= max_keycode && found_count < 3; keycode++) {
-		// 使用布局0和层级0
+		
 		const xkb_keysym_t *syms;
 		int32_t num_syms =
 			xkb_keymap_key_get_syms_by_level(keymap, keycode, 0, 0, &syms);
@@ -759,6 +743,7 @@ static int32_t find_keycodes_for_keysym(struct xkb_keymap *keymap,
 	return found_count;
 }
 
+/* Unref and clear the XKB keymap and context held by the global config. */
 void cleanup_config_keymap(void) {
 	if (config.keymap != NULL) {
 		xkb_keymap_unref(config.keymap);
@@ -770,9 +755,9 @@ void cleanup_config_keymap(void) {
 	}
 }
 
+/* Lazily create the XKB context and fallback keymap used while parsing key bindings. */
 void create_config_keymap(void) {
-	// 初始化 xkb 上下文和 keymap
-
+	
 	if (config.ctx == NULL) {
 		config.ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
 	}
@@ -783,28 +768,27 @@ void create_config_keymap(void) {
 	}
 }
 
+/* Parse a key string (keysym name or "code:N") into a KeySymCode, optionally forcing keysym mode. */
 KeySymCode parse_key(const char *key_str, bool isbindsym) {
-	KeySymCode kc = {0}; // 初始化为0
+	KeySymCode kc = {0};
 
 	if (config.keymap == NULL || config.ctx == NULL) {
-		// 处理错误
+		
 		kc.type = KEY_TYPE_SYM;
 		kc.keysym = XKB_KEY_NoSymbol;
 		return kc;
 	}
 
-	// 处理 code: 前缀的情况
 	if (strncmp(key_str, "code:", 5) == 0) {
 		char *endptr;
 		xkb_keycode_t keycode = (xkb_keycode_t)strtol(key_str + 5, &endptr, 10);
 		kc.type = KEY_TYPE_CODE;
-		kc.keycode.keycode1 = keycode; // 只设置第一个
+		kc.keycode.keycode1 = keycode;
 		kc.keycode.keycode2 = 0;
 		kc.keycode.keycode3 = 0;
 		return kc;
 	}
 
-	// change key string to keysym, case insensitive
 	xkb_keysym_t sym =
 		xkb_keysym_from_name(key_str, XKB_KEYSYM_CASE_INSENSITIVE);
 
@@ -815,42 +799,42 @@ KeySymCode parse_key(const char *key_str, bool isbindsym) {
 	}
 
 	if (sym != XKB_KEY_NoSymbol) {
-		// 尝试找到对应的多个 keycode
+		
 		int32_t found_count =
 			find_keycodes_for_keysym(config.keymap, sym, &kc.keycode);
 		if (found_count > 0) {
 			kc.type = KEY_TYPE_CODE;
-			kc.keysym = sym; // 仍然保存 keysym 供参考
+			kc.keysym = sym;
 		} else {
 			kc.type = KEY_TYPE_SYM;
 			kc.keysym = sym;
-			// keycode 字段保持为0
+			
 		}
 	} else {
-		// 无法解析的键名
+		
 		kc.type = KEY_TYPE_SYM;
 		kc.keysym = XKB_KEY_NoSymbol;
 		fprintf(
 			stderr,
 			"\033[1m\033[31m[ERROR]:\033[33m Unknown key: \033[1m\033[31m%s\n",
 			key_str);
-		// keycode 字段保持为0
+		
 	}
 
 	return kc;
 }
 
+/* Parse a mouse button name (e.g. "btn_left") into its BTN_* code; returns UINT32_MAX on error. */
 uint32_t parse_button(const char *str) {
-	// 将输入字符串转换为小写
+	
 	char lowerStr[20];
 	int32_t i = 0;
 	while (str[i] && i < 19) {
 		lowerStr[i] = tolower(str[i]);
 		i++;
 	}
-	lowerStr[i] = '\0'; // 确保字符串正确终止
+	lowerStr[i] = '\0';
 
-	// 根据转换后的小写字符串返回对应的按钮编号
 	if (strcmp(lowerStr, "btn_left") == 0) {
 		return BTN_LEFT;
 	} else if (strcmp(lowerStr, "btn_right") == 0) {
@@ -876,17 +860,17 @@ uint32_t parse_button(const char *str) {
 	}
 }
 
+/* Parse a mouse action keyword (curmove/curresize/curnormal/curpressed) into its enum value. */
 int32_t parse_mouse_action(const char *str) {
-	// 将输入字符串转换为小写
+	
 	char lowerStr[20];
 	int32_t i = 0;
 	while (str[i] && i < 19) {
 		lowerStr[i] = tolower(str[i]);
 		i++;
 	}
-	lowerStr[i] = '\0'; // 确保字符串正确终止
+	lowerStr[i] = '\0';
 
-	// 根据转换后的小写字符串返回对应的按钮编号
 	if (strcmp(lowerStr, "curmove") == 0) {
 		return CurMove;
 	} else if (strcmp(lowerStr, "curresize") == 0) {
@@ -900,6 +884,7 @@ int32_t parse_mouse_action(const char *str) {
 	}
 }
 
+/* Split a 32-bit 0xRRGGBBAA value into four normalized float channels written to color[4]. */
 void convert_hex_to_rgba(float *color, uint32_t hex) {
 	color[0] = ((hex >> 24) & 0xFF) / 255.0f;
 	color[1] = ((hex >> 16) & 0xFF) / 255.0f;
@@ -907,6 +892,7 @@ void convert_hex_to_rgba(float *color, uint32_t hex) {
 	color[3] = (hex & 0xFF) / 255.0f;
 }
 
+/* Detect a numeric prefix sign ('-' or '+') and return the matching NUM_TYPE_* enum. */
 uint32_t parse_num_type(char *str) {
 	switch (str[0]) {
 	case '-':
@@ -918,6 +904,7 @@ uint32_t parse_num_type(char *str) {
 	}
 }
 
+/* Resolve a dispatcher name to its function pointer and pack its string arguments into arg. */
 FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 						 char *arg_value2, char *arg_value3, char *arg_value4,
 						 char *arg_value5) {
@@ -992,7 +979,6 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 
 		(*arg).v = strdup(arg_value);
 
-		// 收集需要拼接的参数
 		const char *non_empty_params[4] = {NULL};
 		int32_t param_index = 0;
 
@@ -1005,16 +991,15 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 		if (arg_value5 && arg_value5[0] != '\0')
 			non_empty_params[param_index++] = arg_value5;
 
-		// 处理拼接
 		if (param_index == 0) {
 			(*arg).v2 = strdup("");
 		} else {
-			// 计算总长度
+			
 			size_t len = 0;
 			for (int32_t i = 0; i < param_index; i++) {
 				len += strlen(non_empty_params[i]);
 			}
-			len += (param_index - 1) + 1; // 逗号数 + null终止符
+			len += (param_index - 1) + 1;
 
 			char *temp = malloc(len);
 			if (temp) {
@@ -1091,7 +1076,7 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 		(*arg).v = combine_args_until_empty(values, 5);
 	} else if (strcmp(func_name, "spawn_on_empty") == 0) {
 		func = spawn_on_empty;
-		(*arg).v = strdup(arg_value); // 注意：之后需要释放这个内存
+		(*arg).v = strdup(arg_value);
 		(*arg).ui = 1 << (atoi(arg_value2) - 1);
 	} else if (strcmp(func_name, "quit") == 0) {
 		func = quit;
@@ -1214,12 +1199,14 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 	return func;
 }
 
+/* Apply all configured env entries via setenv so spawned children inherit them. */
 void set_env() {
 	for (int32_t i = 0; i < config.env_count; i++) {
 		setenv(config.env[i]->type, config.env[i]->value, 1);
 	}
 }
 
+/* Spawn every command listed under config.exec (run on every config reload). */
 void run_exec() {
 	Arg arg;
 
@@ -1229,6 +1216,7 @@ void run_exec() {
 	}
 }
 
+/* Spawn every command listed under config.exec_once (run only on initial startup). */
 void run_exec_once() {
 	Arg arg;
 
@@ -1238,6 +1226,7 @@ void run_exec_once() {
 	}
 }
 
+/* Dispatch a single key/value pair to the proper setting, rule, or binding parser. */
 bool parse_option(Config *config, char *key, char *value) {
 	if (strcmp(key, "keymode") == 0) {
 		snprintf(config->keymode, sizeof(config->keymode), "%.27s", value);
@@ -1248,19 +1237,19 @@ bool parse_option(Config *config, char *key, char *value) {
 	} else if (strcmp(key, "animation_type_open") == 0) {
 		snprintf(config->animation_type_open,
 				 sizeof(config->animation_type_open), "%.9s",
-				 value); // string limit to 9 char
+				 value);
 	} else if (strcmp(key, "animation_type_close") == 0) {
 		snprintf(config->animation_type_close,
 				 sizeof(config->animation_type_close), "%.9s",
-				 value); // string limit to 9 char
+				 value);
 	} else if (strcmp(key, "layer_animation_type_open") == 0) {
 		snprintf(config->layer_animation_type_open,
 				 sizeof(config->layer_animation_type_open), "%.9s",
-				 value); // string limit to 9 char
+				 value);
 	} else if (strcmp(key, "layer_animation_type_close") == 0) {
 		snprintf(config->layer_animation_type_close,
 				 sizeof(config->layer_animation_type_close), "%.9s",
-				 value); // string limit to 9 char
+				 value);
 	} else if (strcmp(key, "animation_fade_in") == 0) {
 		config->animation_fade_in = atoi(value);
 	} else if (strcmp(key, "animation_fade_out") == 0) {
@@ -1469,15 +1458,14 @@ bool parse_option(Config *config, char *key, char *value) {
 				sizeof(config->xkb_rules_options) - 1);
 		config->xkb_rules_options[sizeof(config->xkb_rules_options) - 1] = '\0';
 	} else if (strcmp(key, "scroller_proportion_preset") == 0) {
-		// 1. 统计 value 中有多少个逗号，确定需要解析的浮点数个数
-		int32_t count = 0; // 初始化为 0
+		
+		int32_t count = 0;
 		for (const char *p = value; *p; p++) {
 			if (*p == ',')
 				count++;
 		}
-		int32_t float_count = count + 1; // 浮点数的数量是逗号数量加 1
+		int32_t float_count = count + 1;
 
-		// 2. 动态分配内存，存储浮点数
 		config->scroller_proportion_preset =
 			(float *)malloc(float_count * sizeof(float));
 		if (!config->scroller_proportion_preset) {
@@ -1486,9 +1474,8 @@ bool parse_option(Config *config, char *key, char *value) {
 			return false;
 		}
 
-		// 3. 解析 value 中的浮点数
 		char *value_copy =
-			strdup(value); // 复制 value，因为 strtok 会修改原字符串
+			strdup(value);
 		char *token = strtok(value_copy, ",");
 		int32_t i = 0;
 		float value_set;
@@ -1506,8 +1493,6 @@ bool parse_option(Config *config, char *key, char *value) {
 				return false;
 			}
 
-			// Clamp the value between 0.0 and 1.0 (or your desired
-			// range)
 			config->scroller_proportion_preset[i] =
 				CLAMP_FLOAT(value_set, 0.1f, 1.0f);
 
@@ -1515,32 +1500,29 @@ bool parse_option(Config *config, char *key, char *value) {
 			i++;
 		}
 
-		// 4. 检查解析的浮点数数量是否匹配
 		if (i != float_count) {
 			fprintf(stderr,
 					"\033[1m\033[31m[ERROR]:\033[33m Invalid "
 					"scroller_proportion_preset format: %s\n",
 					value);
 			free(value_copy);
-			free(config->scroller_proportion_preset);  // 释放已分配的内存
-			config->scroller_proportion_preset = NULL; // 防止野指针
+			free(config->scroller_proportion_preset);
+			config->scroller_proportion_preset = NULL;
 			config->scroller_proportion_preset_count = 0;
 			return false;
 		}
 		config->scroller_proportion_preset_count = float_count;
 
-		// 5. 释放临时复制的字符串
 		free(value_copy);
 	} else if (strcmp(key, "circle_layout") == 0) {
-		// 1. 统计 value 中有多少个逗号，确定需要解析的字符串个数
-		int32_t count = 0; // 初始化为 0
+		
+		int32_t count = 0;
 		for (const char *p = value; *p; p++) {
 			if (*p == ',')
 				count++;
 		}
-		int32_t string_count = count + 1; // 字符串的数量是逗号数量加 1
+		int32_t string_count = count + 1;
 
-		// 2. 动态分配内存，存储字符串指针
 		config->circle_layout = (char **)malloc(string_count * sizeof(char *));
 		memset(config->circle_layout, 0, string_count * sizeof(char *));
 		if (!config->circle_layout) {
@@ -1549,14 +1531,13 @@ bool parse_option(Config *config, char *key, char *value) {
 			return false;
 		}
 
-		// 3. 解析 value 中的字符串
 		char *value_copy =
-			strdup(value); // 复制 value，因为 strtok 会修改原字符串
+			strdup(value);
 		char *token = strtok(value_copy, ",");
 		int32_t i = 0;
 		char *cleaned_token;
 		while (token != NULL && i < string_count) {
-			// 为每个字符串分配内存并复制内容
+			
 			cleaned_token = sanitize_string(token);
 			config->circle_layout[i] = strdup(cleaned_token);
 			if (!config->circle_layout[i]) {
@@ -1565,13 +1546,13 @@ bool parse_option(Config *config, char *key, char *value) {
 						"failed for "
 						"string: %s\n",
 						token);
-				// 释放之前分配的内存
+				
 				for (int32_t j = 0; j < i; j++) {
 					free(config->circle_layout[j]);
 				}
 				free(config->circle_layout);
 				free(value_copy);
-				config->circle_layout = NULL; // 防止野指针
+				config->circle_layout = NULL;
 				config->circle_layout_count = 0;
 				return false;
 			}
@@ -1579,25 +1560,23 @@ bool parse_option(Config *config, char *key, char *value) {
 			i++;
 		}
 
-		// 4. 检查解析的字符串数量是否匹配
 		if (i != string_count) {
 			fprintf(stderr,
 					"\033[1m\033[31m[ERROR]:\033[33m Invalid circle_layout "
 					"format: %s\n",
 					value);
-			// 释放之前分配的内存
+			
 			for (int32_t j = 0; j < i; j++) {
 				free(config->circle_layout[j]);
 			}
 			free(config->circle_layout);
 			free(value_copy);
-			config->circle_layout = NULL; // 防止野指针
+			config->circle_layout = NULL;
 			config->circle_layout_count = 0;
 			return false;
 		}
 		config->circle_layout_count = string_count;
 
-		// 5. 释放临时复制的字符串
 		free(value_copy);
 	} else if (strcmp(key, "new_is_master") == 0) {
 		config->new_is_master = atoi(value);
@@ -1859,7 +1838,6 @@ bool parse_option(Config *config, char *key, char *value) {
 			&config->monitor_rules[config->monitor_rules_count];
 		memset(rule, 0, sizeof(ConfigMonitorRule));
 
-		// 设置默认值
 		rule->name = NULL;
 		rule->make = NULL;
 		rule->model = NULL;
@@ -1947,7 +1925,6 @@ bool parse_option(Config *config, char *key, char *value) {
 		ConfigTagRule *rule = &config->tag_rules[config->tag_rules_count];
 		memset(rule, 0, sizeof(ConfigTagRule));
 
-		// 设置默认值
 		rule->id = 0;
 		rule->layout_name = NULL;
 		rule->monitor_name = NULL;
@@ -2022,7 +1999,6 @@ bool parse_option(Config *config, char *key, char *value) {
 		ConfigLayerRule *rule = &config->layer_rules[config->layer_rules_count];
 		memset(rule, 0, sizeof(ConfigLayerRule));
 
-		// 设置默认值
 		rule->layer_name = NULL;
 		rule->animation_type_open = NULL;
 		rule->animation_type_close = NULL;
@@ -2066,7 +2042,6 @@ bool parse_option(Config *config, char *key, char *value) {
 			token = strtok(NULL, ",");
 		}
 
-		// 如果没有指定布局名称，则使用默认值
 		if (rule->layer_name == NULL) {
 			rule->layer_name = strdup("default");
 		}
@@ -2087,7 +2062,6 @@ bool parse_option(Config *config, char *key, char *value) {
 		ConfigWinRule *rule = &config->window_rules[config->window_rules_count];
 		memset(rule, 0, sizeof(ConfigWinRule));
 
-		// int32_t rule value, relay to a client property
 		rule->isfloating = -1;
 		rule->isfullscreen = -1;
 		rule->isfakefullscreen = -1;
@@ -2118,17 +2092,14 @@ bool parse_option(Config *config, char *key, char *value) {
 		rule->nofadeout = -1;
 		rule->no_force_center = -1;
 
-		// string rule value, relay to a client property
 		rule->animation_type_open = NULL;
 		rule->animation_type_close = NULL;
 
-		// float rule value, relay to a client property
 		rule->focused_opacity = 0;
 		rule->unfocused_opacity = 0;
 		rule->scroller_proportion_single = 0.0f;
 		rule->scroller_proportion = 0;
 
-		// special rule value,not directly set to client property
 		rule->tags = 0;
 		rule->offsetx = 0;
 		rule->offsety = 0;
@@ -2487,7 +2458,6 @@ bool parse_option(Config *config, char *key, char *value) {
 		binding->arg.v2 = NULL;
 		binding->arg.v3 = NULL;
 
-		// TODO: remove this in next version
 		if (binding->mod == 0 &&
 			(binding->button == BTN_LEFT || binding->button == BTN_RIGHT)) {
 			fprintf(stderr,
@@ -2764,6 +2734,7 @@ bool parse_option(Config *config, char *key, char *value) {
 	return true;
 }
 
+/* Split a "key=value" config line, trim both sides, and forward to parse_option. */
 bool parse_config_line(Config *config, const char *line) {
 	char key[256], value[256];
 	if (sscanf(line, "%255[^=]=%255[^\n]", key, value) != 2) {
@@ -2773,20 +2744,19 @@ bool parse_config_line(Config *config, const char *line) {
 		return false;
 	}
 
-	// Then trim each part separately
 	trim_whitespace(key);
 	trim_whitespace(value);
 
 	return parse_option(config, key, value);
 }
 
+/* Resolve file_path (handling ./ and ~/) and parse each non-comment line into config. */
 bool parse_config_file(Config *config, const char *file_path, bool must_exist) {
 	FILE *file;
 	char full_path[1024];
 
 	if (file_path[0] == '.' && file_path[1] == '/') {
-		// Relative path
-
+		
 		if (cli_config_path) {
 			char *config_path = strdup(cli_config_path);
 			char *config_dir = dirname(config_path);
@@ -2808,8 +2778,7 @@ bool parse_config_file(Config *config, const char *file_path, bool must_exist) {
 
 	} else if (file_path[0] == '~' &&
 			   (file_path[1] == '/' || file_path[1] == '\0')) {
-		// Home directory
-
+		
 		const char *home = getenv("HOME");
 		if (!home) {
 			fprintf(stderr, "\033[1m\033[31m[ERROR]:\033[33m HOME environment "
@@ -2820,7 +2789,7 @@ bool parse_config_file(Config *config, const char *file_path, bool must_exist) {
 		file = fopen(full_path, "r");
 
 	} else {
-		// Absolute path
+		
 		file = fopen(file_path, "r");
 	}
 
@@ -2860,22 +2829,24 @@ bool parse_config_file(Config *config, const char *file_path, bool must_exist) {
 	return parse_correct;
 }
 
+/* Free every entry of config->circle_layout and reset its count to zero. */
 void free_circle_layout(Config *config) {
 	if (config->circle_layout) {
-		// 释放每个字符串
+		
 		for (int32_t i = 0; i < config->circle_layout_count; i++) {
 			if (config->circle_layout[i]) {
-				free(config->circle_layout[i]);	 // 释放单个字符串
-				config->circle_layout[i] = NULL; // 防止野指针
+				free(config->circle_layout[i]);
+				config->circle_layout[i] = NULL;
 			}
 		}
-		// 释放 circle_layout 数组本身
+		
 		free(config->circle_layout);
-		config->circle_layout = NULL; // 防止野指针
+		config->circle_layout = NULL;
 	}
-	config->circle_layout_count = 0; // 重置计数
+	config->circle_layout_count = 0;
 }
 
+/* Release all precomputed bezier lookup tables used by the animation system. */
 void free_baked_points(void) {
 	if (baked_points_move) {
 		free(baked_points_move);
@@ -2907,11 +2878,11 @@ void free_baked_points(void) {
 	}
 }
 
+/* Free every heap allocation owned by the global config struct in preparation for reload or exit. */
 void free_config(void) {
-	// 释放内存
+	
 	int32_t i;
 
-	// 释放 window_rules
 	if (config.window_rules) {
 		for (int32_t i = 0; i < config.window_rules_count; i++) {
 			ConfigWinRule *rule = &config.window_rules[i];
@@ -2930,7 +2901,7 @@ void free_config(void) {
 			rule->animation_type_open = NULL;
 			rule->animation_type_close = NULL;
 			rule->monitor = NULL;
-			// 释放 globalkeybinding 的 arg.v（如果动态分配）
+			
 			if (rule->globalkeybinding.arg.v) {
 				free((void *)rule->globalkeybinding.arg.v);
 			}
@@ -2940,7 +2911,6 @@ void free_config(void) {
 		config.window_rules_count = 0;
 	}
 
-	// 释放 key_bindings
 	if (config.key_bindings) {
 		for (i = 0; i < config.key_bindings_count; i++) {
 			if (config.key_bindings[i].arg.v) {
@@ -2961,7 +2931,6 @@ void free_config(void) {
 		config.key_bindings_count = 0;
 	}
 
-	// 释放 mouse_bindings
 	if (config.mouse_bindings) {
 		for (i = 0; i < config.mouse_bindings_count; i++) {
 			if (config.mouse_bindings[i].arg.v) {
@@ -2982,7 +2951,6 @@ void free_config(void) {
 		config.mouse_bindings_count = 0;
 	}
 
-	// 释放 axis_bindings
 	if (config.axis_bindings) {
 		for (i = 0; i < config.axis_bindings_count; i++) {
 			if (config.axis_bindings[i].arg.v) {
@@ -3003,7 +2971,6 @@ void free_config(void) {
 		config.axis_bindings_count = 0;
 	}
 
-	// 释放 switch_bindings
 	if (config.switch_bindings) {
 		for (i = 0; i < config.switch_bindings_count; i++) {
 			if (config.switch_bindings[i].arg.v) {
@@ -3024,7 +2991,6 @@ void free_config(void) {
 		config.switch_bindings_count = 0;
 	}
 
-	// 释放 gesture_bindings
 	if (config.gesture_bindings) {
 		for (i = 0; i < config.gesture_bindings_count; i++) {
 			if (config.gesture_bindings[i].arg.v) {
@@ -3045,7 +3011,6 @@ void free_config(void) {
 		config.gesture_bindings_count = 0;
 	}
 
-	// 释放 tag_rules
 	if (config.tag_rules) {
 		for (int32_t i = 0; i < config.tag_rules_count; i++) {
 			if (config.tag_rules[i].layout_name)
@@ -3064,7 +3029,6 @@ void free_config(void) {
 		config.tag_rules_count = 0;
 	}
 
-	// 释放 monitor_rules
 	if (config.monitor_rules) {
 		for (int32_t i = 0; i < config.monitor_rules_count; i++) {
 			if (config.monitor_rules[i].name)
@@ -3081,7 +3045,6 @@ void free_config(void) {
 		config.monitor_rules_count = 0;
 	}
 
-	// 释放 layer_rules
 	if (config.layer_rules) {
 		for (int32_t i = 0; i < config.layer_rules_count; i++) {
 			if (config.layer_rules[i].layer_name)
@@ -3096,7 +3059,6 @@ void free_config(void) {
 		config.layer_rules_count = 0;
 	}
 
-	// 释放 env
 	if (config.env) {
 		for (int32_t i = 0; i < config.env_count; i++) {
 			if (config.env[i]->type) {
@@ -3112,7 +3074,6 @@ void free_config(void) {
 		config.env_count = 0;
 	}
 
-	// 释放 exec
 	if (config.exec) {
 		for (i = 0; i < config.exec_count; i++) {
 			free(config.exec[i]);
@@ -3122,7 +3083,6 @@ void free_config(void) {
 		config.exec_count = 0;
 	}
 
-	// 释放 exec_once
 	if (config.exec_once) {
 		for (i = 0; i < config.exec_once_count; i++) {
 			free(config.exec_once[i]);
@@ -3132,7 +3092,6 @@ void free_config(void) {
 		config.exec_once_count = 0;
 	}
 
-	// 释放 scroller_proportion_preset
 	if (config.scroller_proportion_preset) {
 		free(config.scroller_proportion_preset);
 		config.scroller_proportion_preset = NULL;
@@ -3144,16 +3103,14 @@ void free_config(void) {
 		config.cursor_theme = NULL;
 	}
 
-	// 释放 circle_layout
 	free_circle_layout(&config);
 
-	// 释放动画资源
 	free_baked_points();
 
-	// 清理解析按键用的keymap
 	cleanup_config_keymap();
 }
 
+/* Clamp all numeric config fields into their allowed ranges after parsing. */
 void override_config(void) {
 	config.animations = CLAMP_INT(config.animations, 0, 1);
 	config.layer_animations = CLAMP_INT(config.layer_animations, 0, 1);
@@ -3326,6 +3283,7 @@ void override_config(void) {
 		CLAMP_FLOAT(config.unfocused_opacity, 0.0f, 1.0f);
 }
 
+/* Initialize the global config with built-in default values for every setting. */
 void set_value_default() {
 	config.animations = 1;
 	config.layer_animations = 0;
@@ -3538,12 +3496,12 @@ void set_value_default() {
 	config.overlaycolor[3] = 1.0f;
 }
 
+/* Append the hard-coded CHVT key bindings to config->key_bindings. */
 void set_default_key_bindings(Config *config) {
-	// 计算默认按键绑定的数量
+	
 	size_t default_key_bindings_count =
 		sizeof(default_key_bindings) / sizeof(KeyBinding);
 
-	// 重新分配内存以容纳新的默认按键绑定
 	config->key_bindings =
 		realloc(config->key_bindings,
 				(config->key_bindings_count + default_key_bindings_count) *
@@ -3552,7 +3510,6 @@ void set_default_key_bindings(Config *config) {
 		return;
 	}
 
-	// 将默认按键绑定复制到配置的按键绑定数组中
 	for (size_t i = 0; i < default_key_bindings_count; i++) {
 		config->key_bindings[config->key_bindings_count + i] =
 			default_key_bindings[i];
@@ -3561,10 +3518,10 @@ void set_default_key_bindings(Config *config) {
 		config->key_bindings[config->key_bindings_count + i].islockapply = true;
 	}
 
-	// 更新按键绑定的总数
 	config->key_bindings_count += default_key_bindings_count;
 }
 
+/* Entry point that resets config, loads defaults, reads lemon.conf, and clamps results. */
 bool parse_config(void) {
 
 	char filename[1024];
@@ -3573,14 +3530,12 @@ bool parse_config(void) {
 
 	memset(&config, 0, sizeof(config));
 
-	// 重新将xkb_rules指针指向静态数组
 	config.xkb_rules.layout = config.xkb_rules_layout;
 	config.xkb_rules.variant = config.xkb_rules_variant;
 	config.xkb_rules.options = config.xkb_rules_options;
 	config.xkb_rules.rules = config.xkb_rules_rules;
 	config.xkb_rules.model = config.xkb_rules_model;
 
-	// 初始化动态数组的指针为NULL，避免野指针
 	config.window_rules = NULL;
 	config.window_rules_count = 0;
 	config.monitor_rules = NULL;
@@ -3615,13 +3570,13 @@ bool parse_config(void) {
 	if (cli_config_path) {
 		snprintf(filename, sizeof(filename), "%s", cli_config_path);
 	} else {
-		// 获取当前用户家目录
+		
 		const char *homedir = getenv("HOME");
 		if (!homedir) {
-			// 如果获取失败，则无法继续
+			
 			return false;
 		}
-		// Config path: only ~/.config/lemon/lemon.conf
+		
 		snprintf(filename, sizeof(filename), "%s/.config/lemon/lemon.conf",
 				 homedir);
 	}
@@ -3634,9 +3589,9 @@ bool parse_config(void) {
 	return parse_correct;
 }
 
+/* Recreate or destroy the per-monitor optimized blur scene nodes to match the current config. */
 void reset_blur_params(void) {
-	/* Invalidate per-layer blur cache so iter_layer_scene_buffers re-runs
-	 * after config change. */
+	
 	{
 		Monitor *m_inv;
 		LayerSurface *l_inv;
@@ -3675,6 +3630,7 @@ void reset_blur_params(void) {
 	}
 }
 
+/* Walk all enabled monitors and re-commit the first matching ConfigMonitorRule to each. */
 void reapply_monitor_rules(void) {
 	ConfigMonitorRule *mr;
 	Monitor *m = NULL;
@@ -3712,6 +3668,7 @@ void reapply_monitor_rules(void) {
 	updatemons(NULL, NULL);
 }
 
+/* Export XCURSOR_SIZE and XCURSOR_THEME env vars based on the current cursor config. */
 void set_xcursor_env() {
 	if (config.cursor_size > 0) {
 		char size_str[16];
@@ -3726,6 +3683,7 @@ void set_xcursor_env() {
 	}
 }
 
+/* Rebuild the xcursor manager and hide-timer using the latest cursor theme/size settings. */
 void reapply_cursor_style(void) {
 	if (hide_cursor_source) {
 		wl_event_source_timer_update(hide_cursor_source, 0);
@@ -3764,14 +3722,15 @@ void reapply_cursor_style(void) {
 	}
 }
 
+/* Re-apply the configured root background color to the scene's root rectangle. */
 void reapply_rootbg(void) {
 	wlr_scene_rect_set_color(root_bg, config.rootcolor);
 }
 
+/* Refresh border width and drop/split indicator colors on every live client after reload. */
 void reapply_property(void) {
 	Client *c = NULL;
 
-	// reset border width when config change
 	wl_list_for_each(c, &clients, link) {
 		if (c && !c->iskilling) {
 			if (!c->isnoborder && !c->isfullscreen) {
@@ -3785,6 +3744,7 @@ void reapply_property(void) {
 	}
 }
 
+/* Push the new repeat rate and delay onto every connected keyboard. */
 void reapply_keyboard(void) {
 	InputDevice *id;
 	wl_list_for_each(id, &inputdevices, link) {
@@ -3796,6 +3756,7 @@ void reapply_keyboard(void) {
 	}
 }
 
+/* Re-run libinput pointer configuration on every connected pointer device. */
 void reapply_pointer(void) {
 	InputDevice *id;
 	struct libinput_device *device;
@@ -3812,6 +3773,7 @@ void reapply_pointer(void) {
 	}
 }
 
+/* Reset per-tag master/mfact and gap fields on every monitor to the configured defaults. */
 void reapply_master(void) {
 
 	int32_t i;
@@ -3831,6 +3793,7 @@ void reapply_master(void) {
 	}
 }
 
+/* Apply every matching ConfigTagRule (layout, mfact, nmaster, flags) to monitor m's pertag state. */
 void parse_tagrule(Monitor *m) {
 	int32_t i, jk;
 	ConfigTagRule tr;
@@ -3907,6 +3870,7 @@ void parse_tagrule(Monitor *m) {
 	}
 }
 
+/* Run parse_tagrule on every enabled monitor to refresh tag-specific settings. */
 void reapply_tagrule(void) {
 	Monitor *m = NULL;
 	wl_list_for_each(m, &mons, link) {
@@ -3917,6 +3881,7 @@ void reapply_tagrule(void) {
 	}
 }
 
+/* Re-apply every hot-reloadable subsystem (cursor, keyboard, blur, rules, layout) after a reload. */
 void reset_option(void) {
 	init_baked_points();
 	handlecursoractivity();
@@ -3938,6 +3903,7 @@ void reset_option(void) {
 	arrange(selmon, false, false);
 }
 
+/* Keybind handler that re-parses the config file and reapplies all live settings. */
 int32_t reload_config(const Arg *arg) {
 	parse_config();
 	reset_option();

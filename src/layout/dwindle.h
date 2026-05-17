@@ -1,13 +1,14 @@
 static DwindleNode *dwindle_locked_h_node = NULL;
 static DwindleNode *dwindle_locked_v_node = NULL;
 
+/* Allocate a new dwindle tree leaf node wrapping client c. */
 static DwindleNode *dwindle_new_leaf(Client *c) {
 	DwindleNode *n = calloc(1, sizeof(DwindleNode));
 	n->client = c;
 	return n;
 }
 
-// 统计同方向上的节点总和 (N_old)
+/* Count leaves inside the contiguous same-orientation split block rooted at node. */
 static int count_block_items(DwindleNode *node, bool split_h) {
 	if (!node)
 		return 0;
@@ -17,7 +18,7 @@ static int count_block_items(DwindleNode *node, bool split_h) {
 		   count_block_items(node->second, split_h);
 }
 
-// 向上查找方向块路径，并计算每个祖先节点的绝对占比
+/* Walk up from target through same-orientation splits, recording the path and each level's cumulative ratio. */
 static int get_block_path_and_ratios(DwindleNode *target, bool split_h,
 									 DwindleNode **path, float *p) {
 	int path_len = 0;
@@ -28,7 +29,7 @@ static int get_block_path_and_ratios(DwindleNode *target, bool split_h,
 		curr = curr->parent;
 	}
 
-	p[path_len - 1] = 1.0f; // 方向块根节点占比为 100%
+	p[path_len - 1] = 1.0f;
 	for (int i = path_len - 1; i > 0; i--) {
 		DwindleNode *S = path[i];
 		DwindleNode *child = path[i - 1];
@@ -40,6 +41,7 @@ static int get_block_path_and_ratios(DwindleNode *target, bool split_h,
 	return path_len;
 }
 
+/* Recursively search the dwindle subtree for the leaf node holding client c. */
 static DwindleNode *dwindle_find_leaf(DwindleNode *node, Client *c) {
 	if (!node)
 		return NULL;
@@ -49,6 +51,7 @@ static DwindleNode *dwindle_find_leaf(DwindleNode *node, Client *c) {
 	return r ? r : dwindle_find_leaf(node->second, c);
 }
 
+/* Descend through first children of node until reaching the leftmost leaf. */
 static DwindleNode *dwindle_first_leaf(DwindleNode *node) {
 	if (!node)
 		return NULL;
@@ -57,6 +60,7 @@ static DwindleNode *dwindle_first_leaf(DwindleNode *node) {
 	return node;
 }
 
+/* Recursively free the dwindle subtree rooted at node. */
 static void dwindle_free_tree(DwindleNode *node) {
 	if (!node)
 		return;
@@ -65,6 +69,7 @@ static void dwindle_free_tree(DwindleNode *node) {
 	free(node);
 }
 
+/* Insert new_c into the dwindle tree by splitting the focused leaf with the given orientation/ratio/lock. */
 static void dwindle_insert(DwindleNode **root, Client *new_c, Client *focused,
 						   float ratio, bool as_first, bool split_h,
 						   bool lock) {
@@ -80,7 +85,6 @@ static void dwindle_insert(DwindleNode **root, Client *new_c, Client *focused,
 	if (!target)
 		target = dwindle_first_leaf(*root);
 
-	// ================= 保持其他窗口比例缩减逻辑 =================
 	if (config.dwindle_manual_split) {
 		DwindleNode *path[512];
 		float p[512];
@@ -113,7 +117,6 @@ static void dwindle_insert(DwindleNode **root, Client *new_c, Client *focused,
 				S->ratio = 0.999f;
 		}
 	}
-	// ============================================================
 
 	DwindleNode *split = calloc(1, sizeof(DwindleNode));
 	split->is_split = true;
@@ -130,7 +133,6 @@ static void dwindle_insert(DwindleNode **root, Client *new_c, Client *focused,
 		split->second = new_leaf;
 	}
 
-	// 通用逻辑
 	split->ratio = ratio;
 
 	split->parent = target->parent;
@@ -147,6 +149,7 @@ static void dwindle_insert(DwindleNode **root, Client *new_c, Client *focused,
 	}
 }
 
+/* Remove client c from the dwindle tree, collapsing its parent split and rebalancing sibling ratios. */
 static void dwindle_remove(DwindleNode **root, Client *c) {
 	DwindleNode *leaf = dwindle_find_leaf(*root, c);
 	if (!leaf)
@@ -165,9 +168,6 @@ static void dwindle_remove(DwindleNode **root, Client *c) {
 		return;
 	}
 
-	// 开始删除空间的比例回退逻辑
-
-	// 查找连续的同方向块路径
 	if (config.dwindle_manual_split) {
 		bool split_h = parent->split_h;
 		DwindleNode *path[512];
@@ -179,7 +179,6 @@ static void dwindle_remove(DwindleNode **root, Client *c) {
 			curr = curr->parent;
 		}
 
-		// 计算各祖先的旧绝对占比
 		float p[512];
 		p[path_len - 1] = 1.0f;
 		for (int i = path_len - 1; i > 0; i--) {
@@ -191,13 +190,11 @@ static void dwindle_remove(DwindleNode **root, Client *c) {
 				p[i - 1] = p[i] * (1.0f - S->ratio);
 		}
 
-		// 计算即将被删除的叶子节点，在该方向块中所占的绝对面积比例 (P_del)
 		float p_del = p[0] * (parent->first == leaf ? parent->ratio
 													: (1.0f - parent->ratio));
 		if (p_del > 0.999f)
-			p_del = 0.999f; // 兜底
+			p_del = 0.999f;
 
-		// 重算祖先比例：将 P_del 空出来的空间，按原定比例无缝分配给其他窗口
 		for (int i = path_len - 1; i > 0; i--) {
 			DwindleNode *S = path[i];
 			DwindleNode *child = path[i - 1];
@@ -221,9 +218,6 @@ static void dwindle_remove(DwindleNode **root, Client *c) {
 		}
 	}
 
-	// 比例重算结束
-
-	// 基础的二叉树摘除节点逻辑
 	DwindleNode *sibling =
 		(parent->first == leaf) ? parent->second : parent->first;
 	DwindleNode *grandparent = parent->parent;
@@ -249,6 +243,7 @@ static void dwindle_remove(DwindleNode **root, Client *c) {
 	free(parent);
 }
 
+/* Recursively assign window box geometry to leaves of the dwindle tree, splitting by orientation and gap. */
 static void dwindle_assign(DwindleNode *node, int32_t ax, int32_t ay,
 						   int32_t aw, int32_t ah, int32_t gap_h,
 						   int32_t gap_v) {
@@ -282,6 +277,7 @@ static void dwindle_assign(DwindleNode *node, int32_t ax, int32_t ay,
 	}
 }
 
+/* Move client c so it becomes a sibling of target on the given side with a locked split. */
 static void dwindle_move_client(DwindleNode **root, Client *c, Client *target,
 								float ratio, int32_t dir) {
 	if (!c || !target || c == target)
@@ -294,6 +290,7 @@ static void dwindle_move_client(DwindleNode **root, Client *c, Client *target,
 	dwindle_insert(root, c, target, ratio, as_first, split_h, true);
 }
 
+/* Swap the clients owned by the leaves containing a and b in the dwindle tree. */
 static void dwindle_swap_clients(DwindleNode **root, Client *a, Client *b) {
 	DwindleNode *la = dwindle_find_leaf(*root, a);
 	DwindleNode *lb = dwindle_find_leaf(*root, b);
@@ -303,6 +300,7 @@ static void dwindle_swap_clients(DwindleNode **root, Client *a, Client *b) {
 	lb->client = a;
 }
 
+/* Resize c by adjusting the locked horizontal/vertical ancestor split ratios from cursor drag. */
 static void dwindle_resize_client(Monitor *m, Client *c) {
 	uint32_t tag = m->pertag->curtag;
 	DwindleNode *leaf = dwindle_find_leaf(m->pertag->dwindle_root[tag], c);
@@ -338,8 +336,7 @@ static void dwindle_resize_client(Monitor *m, Client *c) {
 		float cw = (float)MAX(1, dwindle_locked_h_node->container_w);
 		float ox = (float)(cursor->x - drag_begin_cursorx);
 		if (config.dwindle_smart_resize) {
-			/* Move the boundary toward the cursor: invert direction when
-			 * the drag started on the right side of the split line. */
+
 			float split_x = dwindle_locked_h_node->container_x +
 							cw * dwindle_locked_h_node->drag_init_ratio;
 			if (drag_begin_cursorx >= split_x)
@@ -355,7 +352,7 @@ static void dwindle_resize_client(Monitor *m, Client *c) {
 		float ch = (float)MAX(1, dwindle_locked_v_node->container_h);
 		float oy = (float)(cursor->y - drag_begin_cursory);
 		if (config.dwindle_smart_resize) {
-			/* Same logic for the vertical split line. */
+
 			float split_y = dwindle_locked_v_node->container_y +
 							ch * dwindle_locked_v_node->drag_init_ratio;
 			if (drag_begin_cursory >= split_y)
@@ -380,6 +377,7 @@ static void dwindle_resize_client(Monitor *m, Client *c) {
 				   m->w.height - 2 * gap_ov, gap_ih, gap_iv);
 }
 
+/* Resize c by stepping nearest horizontal/vertical split ratios by dx/dy deltas (no drag state). */
 static void dwindle_resize_client_step(Monitor *m, Client *c, int32_t dx,
 									   int32_t dy) {
 	uint32_t tag = m->pertag->curtag;
@@ -429,6 +427,7 @@ static void dwindle_resize_client_step(Monitor *m, Client *c, int32_t dx,
 				   m->w.height - 2 * gap_ov, gap_ih, gap_iv);
 }
 
+/* Remove client c from every dwindle tree across all monitors and tags. */
 static void dwindle_remove_client(Client *c) {
 	Monitor *m;
 	wl_list_for_each(m, &mons, link) {
@@ -437,8 +436,7 @@ static void dwindle_remove_client(Client *c) {
 	}
 }
 
-/* Insert a new client respecting dwindle_vsplit, dwindle_hsplit, and
- * dwindle_smart_split config options. */
+/* Pick split orientation/side based on config and cursor position, then insert new_c via dwindle_insert. */
 static void dwindle_insert_with_config(DwindleNode **root, Client *new_c,
 									   Client *focused, float ratio) {
 
@@ -458,15 +456,15 @@ static void dwindle_insert_with_config(DwindleNode **root, Client *new_c,
 		double ny = (cursor->y - fcy) / (fg->height * 0.5);
 
 		if (fabs(ny) > fabs(nx)) {
-			split_h = false;	 // vertical split
-			as_first = (ny < 0); // top → new window on top
+			split_h = false;
+			as_first = (ny < 0);
 		} else {
-			split_h = true;		 // horizontal split
-			as_first = (nx < 0); // left → new window on left
+			split_h = true;
+			as_first = (nx < 0);
 		}
-		lock = true; // lock split direction
+		lock = true;
 	} else {
-		// normal mode, auto split
+
 		bool likely_h = (fg->width >= fg->height);
 		split_h = likely_h;
 
@@ -487,13 +485,11 @@ static void dwindle_insert_with_config(DwindleNode **root, Client *new_c,
 	if (!target && *root)
 		target = dwindle_first_leaf(*root);
 
-	// 当且仅当 manual_split=1 时，计算精确的 1/N 新节点比例
 	if (config.dwindle_manual_split && target) {
 		split_h = target->custom_leaf_split_h;
 		lock = true;
 		as_first = false;
 
-		// ================= 计算新节点的 1/N 比例 =================
 		DwindleNode *path[512];
 		float p[512];
 		int path_len = get_block_path_and_ratios(target, split_h, path, p);
@@ -517,13 +513,13 @@ static void dwindle_insert_with_config(DwindleNode **root, Client *new_c,
 			ratio = 0.001f;
 		if (ratio > 0.999f)
 			ratio = 0.999f;
-		// =========================================================
+
 	}
 
-	// 调用通用插入函数
 	dwindle_insert(root, new_c, focused, ratio, as_first, split_h, lock);
 }
 
+/* Apply the dwindle (recursive binary split) layout to m: sync tree with visible clients and assign geometry. */
 void dwindle(Monitor *m) {
 	int32_t n = m->visible_tiling_clients;
 	if (n == 0)
@@ -595,6 +591,7 @@ void dwindle(Monitor *m) {
 				   gap_iv);
 }
 
+/* Free every per-tag dwindle tree owned by monitor m. */
 void cleanup_monitor_dwindle(Monitor *m) {
 	for (uint32_t t = 0; t < LENGTH(tags) + 1; t++)
 		dwindle_free_tree(m->pertag->dwindle_root[t]);

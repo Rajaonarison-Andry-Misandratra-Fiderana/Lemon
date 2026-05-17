@@ -1,3 +1,4 @@
+/* Return the parent PID of process p by reading /proc/p/stat, or 0 on failure. */
 pid_t getparentprocess(pid_t p) {
 	uint32_t v = 0;
 
@@ -19,6 +20,7 @@ pid_t getparentprocess(pid_t p) {
 	return (pid_t)v;
 }
 
+/* Return non-zero if process p is an ancestor of process c by walking parent PIDs. */
 int32_t isdescprocess(pid_t p, pid_t c) {
 	while (p != c && c != 0)
 		c = getparentprocess(c);
@@ -26,6 +28,7 @@ int32_t isdescprocess(pid_t p, pid_t c) {
 	return (int32_t)c;
 }
 
+/* Compute a short abbreviation for a layout name into abbr, using mappings or heuristics. */
 void get_layout_abbr(char *abbr, const char *full_name) {
 	// 清空输出缓冲区
 	abbr[0] = '\0';
@@ -77,6 +80,7 @@ void get_layout_abbr(char *abbr, const char *full_name) {
 	}
 }
 
+/* Resolve the surface, client, and layer-surface at scene coordinates (x,y), with local offsets. */
 void xytonode(double x, double y, struct wlr_surface **psurface, Client **pc,
 			  LayerSurface **pl, double *nx, double *ny) {
 	struct wlr_scene_node *node, *pnode;
