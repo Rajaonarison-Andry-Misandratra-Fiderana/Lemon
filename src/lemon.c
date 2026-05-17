@@ -419,6 +419,10 @@ struct Client {
 	bool need_output_flush;
 	bool focus_opacity_dirty;
 	bool foreign_activated_state;
+	int8_t fullscreen_sent;
+	int8_t maximized_sent;
+	int8_t suspended_sent;
+	uint32_t tiled_edges_sent;
 	struct dwl_animation animation;
 	struct dwl_opacity_animation opacity_animation;
 	int32_t isterm, noswallow;

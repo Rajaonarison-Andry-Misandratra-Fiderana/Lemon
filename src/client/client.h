@@ -276,12 +276,19 @@ static inline void client_set_border_color(Client *c,
 }
 
 static inline void client_set_fullscreen(Client *c, int32_t fullscreen) {
+	int8_t want = fullscreen ? 1 : 0;
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
+		if (c->fullscreen_sent == want)
+			return;
+		c->fullscreen_sent = want;
 		wlr_xwayland_surface_set_fullscreen(c->surface.xwayland, fullscreen);
 		return;
 	}
 #endif
+	if (c->fullscreen_sent == want)
+		return;
+	c->fullscreen_sent = want;
 	wlr_xdg_toplevel_set_fullscreen(c->surface.xdg->toplevel, fullscreen);
 }
 
@@ -344,14 +351,21 @@ static inline void client_set_minimized(Client *c, bool minimized) {
 
 static inline void client_set_maximized(Client *c, bool maximized) {
 	struct wlr_xdg_toplevel *toplevel;
+	int8_t want = maximized ? 1 : 0;
 
 #ifdef XWAYLAND
 	if (client_is_x11(c)) {
+		if (c->maximized_sent == want)
+			return;
+		c->maximized_sent = want;
 		wlr_xwayland_surface_set_maximized(c->surface.xwayland, maximized,
 										   maximized);
 		return;
 	}
 #endif
+	if (c->maximized_sent == want)
+		return;
+	c->maximized_sent = want;
 	toplevel = c->surface.xdg->toplevel;
 	wlr_xdg_toplevel_set_maximized(toplevel, maximized);
 	return;
@@ -361,6 +375,10 @@ static inline void client_set_tiled(Client *c, uint32_t edges) {
 	struct wlr_xdg_toplevel *toplevel;
 #ifdef XWAYLAND
 	if (client_is_x11(c) && c->force_fakemaximize) {
+		int8_t want = edges != WLR_EDGE_NONE ? 1 : 0;
+		if (c->maximized_sent == want)
+			return;
+		c->maximized_sent = want;
 		wlr_xwayland_surface_set_maximized(c->surface.xwayland,
 										   edges != WLR_EDGE_NONE,
 										   edges != WLR_EDGE_NONE);
@@ -372,20 +390,31 @@ static inline void client_set_tiled(Client *c, uint32_t edges) {
 
 	if (wl_resource_get_version(c->surface.xdg->toplevel->resource) >=
 		XDG_TOPLEVEL_STATE_TILED_RIGHT_SINCE_VERSION) {
-		wlr_xdg_toplevel_set_tiled(c->surface.xdg->toplevel, edges);
+		if (c->tiled_edges_sent != edges) {
+			c->tiled_edges_sent = edges;
+			wlr_xdg_toplevel_set_tiled(c->surface.xdg->toplevel, edges);
+		}
 	}
 
 	if (c->force_fakemaximize) {
-		wlr_xdg_toplevel_set_maximized(toplevel, edges != WLR_EDGE_NONE);
+		int8_t want = edges != WLR_EDGE_NONE ? 1 : 0;
+		if (c->maximized_sent != want) {
+			c->maximized_sent = want;
+			wlr_xdg_toplevel_set_maximized(toplevel, edges != WLR_EDGE_NONE);
+		}
 	}
 }
 
 static inline void client_set_suspended(Client *c, int32_t suspended) {
+	int8_t want = suspended ? 1 : 0;
 #ifdef XWAYLAND
 	if (client_is_x11(c))
 		return;
 #endif
 
+	if (c->suspended_sent == want)
+		return;
+	c->suspended_sent = want;
 	wlr_xdg_toplevel_set_suspended(c->surface.xdg->toplevel, suspended);
 }
 

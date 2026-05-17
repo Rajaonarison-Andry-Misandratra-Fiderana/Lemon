@@ -40,6 +40,15 @@ libwayland_client_dep = dependency('wayland-client')
 pcre2_dep = dependency('libpcre2-8')
 libscenefx_dep = dependency('scenefx-0.4',version: '>=0.4.1')
 
+# Optional faster allocator (jemalloc/mimalloc). Off by default.
+fast_alloc_dep = dependency('', required: false)
+if get_option('jemalloc')
+  fast_alloc_dep = dependency('jemalloc', required: false)
+  if not fast_alloc_dep.found()
+    fast_alloc_dep = cc.find_library('jemalloc', required: true)
+  endif
+endif
+
 
 # 获取版本信息
 git = find_program('git', required : false)
@@ -129,23 +138,28 @@ if xcb.found() and xlibs.found()
   c_args += '-DXWAYLAND'
 endif
 
+lemon_deps = [
+  libm,
+  xcb,
+  xlibs,
+  libscenefx_dep,
+  wayland_server_dep,
+  wlroots_dep,
+  xkbcommon_dep,
+  libinput_dep,
+  libwayland_client_dep,
+  pcre2_dep,
+]
+if get_option('jemalloc') and fast_alloc_dep.found()
+  lemon_deps += fast_alloc_dep
+endif
+
 executable('lemon',
   'src/lemon.c',
   'src/common/util.c',
   'src/ext-protocol/wlr_ext_workspace_v1.c',
   wayland_sources,
-  dependencies : [
-    libm,
-    xcb,
-    xlibs,
-    libscenefx_dep,
-    wayland_server_dep,
-    wlroots_dep,
-    xkbcommon_dep,
-    libinput_dep,
-    libwayland_client_dep,
-    pcre2_dep,
-  ],
+  dependencies : lemon_deps,
   install : true,
   c_args : c_args,
   link_args : link_args,
