@@ -1,31 +1,31 @@
 ---
 title: Basic Configuration
-description: Learn how to configure mangowm files, environment variables, and autostart scripts.
+description: Learn how to configure lemonwm files, environment variables, and autostart scripts.
 ---
 
 ## Configuration File
 
-mangowm uses a simple configuration file format. By default, it looks for a configuration file in `~/.config/mango/`.
+lemonwm uses a simple configuration file format. By default, it looks for a configuration file in `~/.config/lemon/`.
 
 1. **Locate Default Config**
 
-   A fallback configuration is provided at `/etc/mango/config.conf`. You can use this as a reference.
+   A fallback configuration is provided at `/etc/lemon/config.conf`. You can use this as a reference.
 
 2. **Create User Config**
 
    Copy the default config to your local config directory to start customizing.
 
    ```bash
-   mkdir -p ~/.config/mango
-   cp /etc/mango/config.conf ~/.config/mango/config.conf
+   mkdir -p ~/.config/lemon
+   cp /etc/lemon/config.conf ~/.config/lemon/config.conf
    ```
 
 3. **Launch with Custom Config (Optional)**
 
-   If you prefer to keep your config elsewhere, you can launch mango with the `-c` flag.
+   If you prefer to keep your config elsewhere, you can launch lemon with the `-c` flag.
 
    ```bash
-   mango -c /path/to/your_config.conf
+   lemon -c /path/to/your_config.conf
    ```
 
 ### Sub-Configuration
@@ -34,21 +34,21 @@ To keep your configuration organized, you can split it into multiple files and i
 
 ```ini
 # Import keybindings from a separate file
-source=~/.config/mango/bind.conf
+source=~/.config/lemon/bind.conf
 
 # Relative paths work too
 source=./theme.conf
 
 # Optional: ignore if file doesn't exist (useful for shared configs)
-source-optional=~/.config/mango/optional.conf
+source-optional=~/.config/lemon/optional.conf
 ```
 
 ### Validate Configuration
 
-You can check your configuration for errors without starting mangowm:
+You can check your configuration for errors without starting lemonwm:
 
 ```bash
-mango -c /path/to/config.conf -p
+lemon -c /path/to/config.conf -p
 ```
 
 Use with `source-optional` for shared configs across different setups.
@@ -66,11 +66,11 @@ env=XMODIFIERS,@im=fcitx
 
 ## Autostart
 
-mangowm can automatically run commands or scripts upon startup. There are two modes for execution:
+lemonwm can automatically run commands or scripts upon startup. There are two modes for execution:
 
 | Command | Behavior | Usage Case |
 | :--- | :--- | :--- |
-| `exec-once` | Runs **only once** when mangowm starts. | Status bars, Wallpapers, Notification daemons |
+| `exec-once` | Runs **only once** when lemonwm starts. | Status bars, Wallpapers, Notification daemons |
 | `exec` | Runs **every time** the config is reloaded. | Scripts that need to refresh settings |
 
 ### Example Setup
@@ -80,8 +80,8 @@ mangowm can automatically run commands or scripts upon startup. There are two mo
 exec-once=waybar
 
 # Set wallpaper
-exec-once=swaybg -i ~/.config/mango/wallpaper/room.png
+exec-once=swaybg -i ~/.config/lemon/wallpaper/room.png
 
 # Reload a custom script on config change
-exec=bash ~/.config/mango/reload-settings.sh
+exec=bash ~/.config/lemon/reload-settings.sh
 ```

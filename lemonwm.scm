@@ -1,4 +1,4 @@
-(define-module (mangowm)
+(define-module (lemonwm)
   #:use-module (guix download)
   #:use-module (guix git-download)
   #:use-module (guix gexp)
@@ -18,11 +18,11 @@
   #:use-module ((guix licenses) #:prefix license:))
 
 
-(define-public mangowm-git
+(define-public lemonwm-git
   (package
-    (name "mangowm")
+    (name "lemonwm")
     (version "git")
-    (source (local-file "." "mangowm-checkout"
+    (source (local-file "." "lemonwm-checkout"
                         #:recursive? #t
                         #:select? (or (git-predicate (current-source-directory))
                                       (const #t))))
@@ -36,7 +36,7 @@
           (add-before 'configure 'patch-meson
             (lambda _
               (substitute* "meson.build"
-                ;; MangoWM ignores sysconfdir handling for NixOS.
+                ;; LemonWM ignores sysconfdir handling for NixOS.
                 ;; We also need to skip that sysconfdir edits.
                 (("is_nixos = false")
                  "is_nixos = true")
@@ -58,16 +58,16 @@
                   wlroots-0.19
                   scenefx))
     (native-inputs (list pkg-config wayland-protocols))
-    (home-page "https://github.com/mangowm/mango")
+    (home-page "https://github.com/lemonwm/lemon")
     (synopsis "Wayland compositor based on wlroots and scenefx")
     (description
-     "MangoWM is a modern, lightweight, high-performance Wayland compositor
+     "LemonWM is a modern, lightweight, high-performance Wayland compositor
 built on dwl — crafted for speed, flexibility, and a customizable desktop experience.")
-    (license (list license:gpl3 ;mangowm itself, dwl
+    (license (list license:gpl3 ;lemonwm itself, dwl
                    license:expat ;dwm, sway, wlroots
                    license:cc0)))) ;tinywl
 
-(define-deprecated-package mangowc
-  mangowm-git)
+(define-deprecated-package lemonwc
+  lemonwm-git)
 
-mangowm-git
+lemonwm-git

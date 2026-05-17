@@ -22,7 +22,7 @@
   debug ? false,
 }:
 stdenv.mkDerivation {
-  pname = "mango";
+  pname = "lemon";
   version = "nightly";
 
   src = builtins.path {
@@ -62,13 +62,13 @@ stdenv.mkDerivation {
     ];
 
   passthru = {
-    providedSessions = ["mango"];
+    providedSessions = ["lemon"];
   };
 
   meta = {
-    mainProgram = "mango";
+    mainProgram = "lemon";
     description = "Practical and Powerful wayland compositor (dwm but wayland)";
-    homepage = "https://github.com/mangowm/mango";
+    homepage = "https://github.com/lemonwm/lemon";
     license = lib.licenses.gpl3Plus;
     maintainers = [];
     platforms = lib.platforms.unix;

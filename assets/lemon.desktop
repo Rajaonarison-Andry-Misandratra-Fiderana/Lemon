@@ -1,0 +1,8 @@
+[Desktop Entry]
+Encoding=UTF-8
+Name=Lemon
+DesktopNames=lemon;wlroots
+Comment=lemon WM
+Exec=lemon
+Icon=lemon
+Type=Application

@@ -5,7 +5,7 @@ description: Configure keyboard layouts, mouse sensitivity, and touchpad gesture
 
 ## Device Configuration
 
-mangowm provides granular control over different input devices.
+lemonwm provides granular control over different input devices.
 
 ### Keyboard Settings
 

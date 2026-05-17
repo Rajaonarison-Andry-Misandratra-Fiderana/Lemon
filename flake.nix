@@ -19,8 +19,8 @@
       ];
 
       flake = {
-        hmModules.mango = import ./nix/hm-modules.nix self;
-        nixosModules.mango = import ./nix/nixos-modules.nix self;
+        hmModules.lemon = import ./nix/hm-modules.nix self;
+        nixosModules.lemon = import ./nix/nixos-modules.nix self;
       };
 
       perSystem = {
@@ -29,7 +29,7 @@
         ...
       }: let
         inherit (pkgs) callPackage ;
-        mango = callPackage ./nix {
+        lemon = callPackage ./nix {
           inherit (inputs.scenefx.packages.${pkgs.stdenv.hostPlatform.system}) scenefx;
         };
         shellOverride = old: {
@@ -37,22 +37,22 @@
           buildInputs = old.buildInputs ++ [];
         };
       in {
-        packages.default = mango;
+        packages.default = lemon;
         overlayAttrs = {
-          inherit (config.packages) mango;
+          inherit (config.packages) lemon;
         };
         packages = {
-          inherit mango;
+          inherit lemon;
           hm-options-json = pkgs.callPackage (import ./nix/generate-options.nix self) {
             module = ./nix/hm-modules.nix;
-            optionPrefix = "wayland.windowManager.mango.";
+            optionPrefix = "wayland.windowManager.lemon.";
           };
           nixos-options-json = pkgs.callPackage (import ./nix/generate-options.nix self) {
             module = ./nix/nixos-modules.nix;
-            optionPrefix = "programs.mango.";
+            optionPrefix = "programs.lemon.";
           };
         };
-        devShells.default = mango.overrideAttrs shellOverride;
+        devShells.default = lemon.overrideAttrs shellOverride;
         formatter = pkgs.alejandra;
       };
       systems = [

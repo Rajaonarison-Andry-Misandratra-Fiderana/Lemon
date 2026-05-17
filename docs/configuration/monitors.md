@@ -128,7 +128,7 @@ windowrule=force_tearing:1,title:vkcube
 
 ### Graphics Card Compatibility
 
-> **Warning:** Some graphics cards require setting the `WLR_DRM_NO_ATOMIC` environment variable before mango starts to successfully enable tearing.
+> **Warning:** Some graphics cards require setting the `WLR_DRM_NO_ATOMIC` environment variable before lemon starts to successfully enable tearing.
 
 Add this to `/etc/environment` and reboot:
 
@@ -136,24 +136,24 @@ Add this to `/etc/environment` and reboot:
 WLR_DRM_NO_ATOMIC=1
 ```
 
-Or run mango with the environment variable:
+Or run lemon with the environment variable:
 
 ```bash
-WLR_DRM_NO_ATOMIC=1 mango
+WLR_DRM_NO_ATOMIC=1 lemon
 ```
 
 ---
 
 ## GPU Compatibility
 
-If mango cannot display correctly or shows a black screen, try selecting a specific GPU:
+If lemon cannot display correctly or shows a black screen, try selecting a specific GPU:
 
 ```bash
 # Use a single GPU
-WLR_DRM_DEVICES=/dev/dri/card1 mango
+WLR_DRM_DEVICES=/dev/dri/card1 lemon
 
 # Use multiple GPUs
-WLR_DRM_DEVICES=/dev/dri/card0:/dev/dri/card1 mango
+WLR_DRM_DEVICES=/dev/dri/card0:/dev/dri/card1 lemon
 ```
 
 Some GPUs have compatibility issues with `syncobj_enable=1` — it may crash apps like `kitty` that use syncobj. Set `WLR_DRM_NO_ATOMIC=1` in `/etc/environment` and reboot to resolve this.
@@ -247,7 +247,7 @@ exec-once=xwayland-satellite :2
 monitorrule=name:eDP-1,width:1920,height:1080,refresh:60,x:0,y:0,scale:1.4,vrr:0,rr:0
 ```
 
-> **Warning:** Use a `DISPLAY` value other than `:1` to avoid conflicting with mangowm.
+> **Warning:** Use a `DISPLAY` value other than `:1` to avoid conflicting with lemonwm.
 
 ---
 

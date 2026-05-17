@@ -1,13 +1,13 @@
 <div align="center">
-  <img src="https://github.com/mangowm/mango/blob/main/assets/mango-transparency-256.png" alt="Mango Logo" width="120"/>
+  <img src="https://github.com/lemonwm/lemon/blob/main/assets/lemon-transparency-256.png" alt="Lemon Logo" width="120"/>
 
-  <h1>Mango Wayland Compositor</h1>
+  <h1>Lemon Wayland Compositor</h1>
 
   <p>A fast, feature-rich Wayland compositor built on <a href="https://codeberg.org/dwl/dwl">dwl</a></p>
 
-<a href="https://github.com/mangowm/mango/stargazers"><img src="https://img.shields.io/github/stars/mangowm/mango?style=flat&color=orange" alt="Stars"/></a>
-<a href="https://github.com/mangowm/mango/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat" alt="License"/></a>
-<a href="https://repology.org/project/mangowm/versions"><img src="https://repology.org/badge/tiny-repos/mangowm.svg" alt="Packaged in"/></a>
+<a href="https://github.com/lemonwm/lemon/stargazers"><img src="https://img.shields.io/github/stars/lemonwm/lemon?style=flat&color=orange" alt="Stars"/></a>
+<a href="https://github.com/lemonwm/lemon/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat" alt="License"/></a>
+<a href="https://repology.org/project/lemonwm/versions"><img src="https://repology.org/badge/tiny-repos/lemonwm.svg" alt="Packaged in"/></a>
 <a href="https://discord.gg/CPjbDxesh5"><img src="https://img.shields.io/discord/1430889676264177687?style=flat&logo=discord&label=discord" alt="Discord"/></a>
 
 </div>
@@ -16,11 +16,11 @@
 
 https://github.com/user-attachments/assets/bb83004a-0563-4b48-ad89-6461a9b78b1f
 
-> See all layouts in action at [mangowm.github.io](https://mangowm.github.io/)
+> See all layouts in action at [lemonwm.github.io](https://lemonwm.github.io/)
 
-## Why Mango?
+## Why Lemon?
 
-Mango starts where dwl ends. It keeps the lightweight, fast-build philosophy while adding the features that make a compositor actually usable day-to-day — without the bloat.
+Lemon starts where dwl ends. It keeps the lightweight, fast-build philosophy while adding the features that make a compositor actually usable day-to-day — without the bloat.
 
 - **Lightweight & fast** — as lean as dwl, builds in seconds, no functionality compromised
 - **Excellent xwayland support** — run X11 apps without friction
@@ -38,7 +38,7 @@ Mango starts where dwl ends. It keeps the lightweight, fast-build philosophy whi
 
 ## Vision
 
-**Stability first.** After months of testing, Mango is solid enough for daily use. Breaking changes will be minimal.
+**Stability first.** After months of testing, Lemon is solid enough for daily use. Breaking changes will be minimal.
 
 **Practicality over novelty.** Features get added when they genuinely improve daily workflows — not for the sake of completeness.
 
@@ -46,12 +46,12 @@ Mango starts where dwl ends. It keeps the lightweight, fast-build philosophy whi
 
 ## Installation
 
-[![Packaging status](https://repology.org/badge/vertical-allrepos/mangowm.svg)](https://repology.org/project/mangowm/versions)
+[![Packaging status](https://repology.org/badge/vertical-allrepos/lemonwm.svg)](https://repology.org/project/lemonwm/versions)
 
 ### Arch Linux
 
 ```bash
-yay -S mangowm-git
+yay -S lemonwm-git
 ```
 #### use my config
 - install dependencies
@@ -60,17 +60,17 @@ yay -S rofi foot xdg-desktop-portal-wlr swaybg waybar wl-clip-persist cliphist w
 ```
 - clone config
 ```
-git clone https://github.com/DreamMaoMao/mango-config.git ~/.config/mango
+git clone https://github.com/DreamMaoMao/lemon-config.git ~/.config/lemon
 ```
 
 ### Other distributions
 
-See the [Installation Guide](https://mangowm.github.io/docs/installation) for Fedora, Gentoo, Guix, NixOS, openSUSE, PikaOS, AerynOS, and building from source.
+See the [Installation Guide](https://lemonwm.github.io/docs/installation) for Fedora, Gentoo, Guix, NixOS, openSUSE, PikaOS, AerynOS, and building from source.
 
 ## Documentation
 
-- **[mangowm.github.io](https://mangowm.github.io/)** — website docs with configuration reference, keybindings, layouts, IPC, and more
-- **[GitHub Wiki](https://github.com/mangowm/mango/wiki/)** — community-maintained wiki
+- **[lemonwm.github.io](https://lemonwm.github.io/)** — website docs with configuration reference, keybindings, layouts, IPC, and more
+- **[GitHub Wiki](https://github.com/lemonwm/lemon/wiki/)** — community-maintained wiki
 
 ## Community
 
@@ -79,14 +79,14 @@ Join us on **[Discord](https://discord.gg/CPjbDxesh5)**
 ## Acknowledgements
 
 - [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots) — Wayland protocol implementation
-- [dwl](https://codeberg.org/dwl/dwl) — the foundation Mango builds on
+- [dwl](https://codeberg.org/dwl/dwl) — the foundation Lemon builds on
 - [scenefx](https://github.com/wlrfx/scenefx) — window effects library
 - [owl](https://github.com/dqrk0jeste/owl) — animation groundwork
 - [sway](https://github.com/swaywm/sway) — protocol reference
 
 ## Sponsor
 
-If Mango makes your desktop better, consider supporting its development.
+If Lemon makes your desktop better, consider supporting its development.
 
 Thanks to everyone who has sponsored this project:
 

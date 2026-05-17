@@ -1,13 +1,13 @@
 ---
 title: Status Bar
-description: Configure Waybar for mangowm.
+description: Configure Waybar for lemonwm.
 ---
 
 ## Module Configuration
 
-mangowm is compatible with Waybar's `ext/workspaces` module (Wayland standard) or the `dwl/tags` module. We recommend `ext/workspaces` for the best experience.
+lemonwm is compatible with Waybar's `ext/workspaces` module (Wayland standard) or the `dwl/tags` module. We recommend `ext/workspaces` for the best experience.
 
-> **Tip:** You can also use the `dwl/tags` module, but `ext/workspaces` provides better integration with mangowm's features. The `ext/workspaces` module requires **Waybar > 0.14.0**.
+> **Tip:** You can also use the `dwl/tags` module, but `ext/workspaces` provides better integration with lemonwm's features. The `ext/workspaces` module requires **Waybar > 0.14.0**.
 
 ### `config.jsonc`
 
@@ -138,4 +138,4 @@ You can style the tags using standard CSS in `style.css`.
 
 ## Complete Configuration Example
 
-> **Tip:** You can find a complete Waybar configuration for mangowm at [waybar-config](https://github.com/DreamMaoMao/waybar-config).
+> **Tip:** You can find a complete Waybar configuration for lemonwm at [waybar-config](https://github.com/DreamMaoMao/waybar-config).

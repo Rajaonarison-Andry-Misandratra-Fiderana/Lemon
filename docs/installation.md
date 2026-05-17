@@ -1,34 +1,34 @@
 ---
 title: Installation
-description: Install mangowm on AerynOS, Arch, Fedora, Gentoo, Guix System, NixOS, PikaOS, or build from source.
+description: Install lemonwm on AerynOS, Arch, Fedora, Gentoo, Guix System, NixOS, PikaOS, or build from source.
 ---
 
 ## Package Installation
 
-mangowm is available as a pre-built package on several distributions. Choose your distribution below.
+lemonwm is available as a pre-built package on several distributions. Choose your distribution below.
 
 ---
 
 ### AerynOS
 
-mangowm is available in the **AerynOS package repository**.
+lemonwm is available in the **AerynOS package repository**.
 
 You can install it using the `moss` package manager:
 
 ```bash
-sudo moss install mangowm
+sudo moss install lemonwm
 ```
 
 ---
 
 ### Arch Linux
 
-mangowm is available in the **Arch User Repository (AUR)**.
+lemonwm is available in the **Arch User Repository (AUR)**.
 
 You can install it using an AUR helper like `yay` or `paru`:
 
 ```bash
-yay -S mangowm-git
+yay -S lemonwm-git
 ```
 
 > **Tip:** This package pulls the latest git version, ensuring you have the newest features and fixes.
@@ -48,7 +48,7 @@ dnf install --nogpgcheck --repofrompath 'terra,https://repos.fyralabs.com/terra$
 Then, install the package:
 
 ```bash
-dnf install mangowm
+dnf install lemonwm
 ```
 
 ---
@@ -68,11 +68,11 @@ The package is hosted in the community-maintained **GURU** repository.
 2. **Unmask packages**
    Add the required packages to your `package.accept_keywords` file:
    - `gui-libs/scenefx`
-   - `gui-wm/mangowm`
+   - `gui-wm/lemonwm`
 
-3. **Install mango**
+3. **Install lemon**
    ```bash
-   emerge --ask --verbose gui-wm/mangowm
+   emerge --ask --verbose gui-wm/lemonwm
    ```
 
 ---
@@ -81,31 +81,31 @@ The package is hosted in the community-maintained **GURU** repository.
 
 The package definition is described in the source repository.
 
-1. **Add mango channel**
+1. **Add lemon channel**
    Add to `$HOME/.config/guix/channels.scm`:
 
    ```scheme
    (cons (channel
-           (name 'mangowm)
-           (url "https://github.com/mangowm/mango.git")
+           (name 'lemonwm)
+           (url "https://github.com/lemonwm/lemon.git")
            (branch "main"))
          %default-channels)
    ```
 
 2. **Install**
-   After running `guix pull`, you can install mangowm:
+   After running `guix pull`, you can install lemonwm:
 
    ```bash
-   guix install mangowm
+   guix install lemonwm
    ```
 
-   Or add it to your system configuration using the mangowm module:
+   Or add it to your system configuration using the lemonwm module:
 
    ```scheme
-   (use-modules (mangowm))
+   (use-modules (lemonwm))
 
    (packages (cons*
-               mangowm-git
+               lemonwm-git
                ... ;; Other packages
                %base-packages))
    ```
@@ -125,8 +125,8 @@ The repository provides a Flake with a NixOS module.
    {
      inputs = {
        nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-       mangowm = {
-         url = "github:mangowm/mango";
+       lemonwm = {
+         url = "github:lemonwm/lemon";
          inputs.nixpkgs.follows = "nixpkgs";
        };
        # other inputs ...
@@ -142,7 +142,7 @@ The repository provides a Flake with a NixOS module.
    # configuration.nix (or any other file that you import)
    {inputs, ...}: {
      imports = [
-       inputs.mangowm.nixosModules.mango
+       inputs.lemonwm.nixosModules.lemon
        # .. other imports ...
      ];
 
@@ -157,13 +157,13 @@ The repository provides a Flake with a NixOS module.
    {
      # ...
 
-     outputs = { self, nixpkgs, mangowm, ...}@inputs: let
+     outputs = { self, nixpkgs, lemonwm, ...}@inputs: let
        inherit (nixpkgs) lib;
        # ...
      in {
        nixosConfigurations.YourHostName = lib.nixosSystem {
          modules = [
-           mangowm.nixosModules.mango # or inputs.mangowm.nixosModules.mango
+           lemonwm.nixosModules.lemon # or inputs.lemonwm.nixosModules.lemon
            # other imports ...
          ];
        };
@@ -176,11 +176,11 @@ The repository provides a Flake with a NixOS module.
    ```nix
    # configuration.nix (or any other file that you import)
    {
-     programs.mango.enable = true;
+     programs.lemon.enable = true;
    }
    ```
 
-4. **Start mango on login**
+4. **Start lemon on login**
 
    The following are common examples. Refer to the official NixOS documentation for full configuration options.
 
@@ -191,22 +191,22 @@ The repository provides a Flake with a NixOS module.
      enable = true;
      settings = {
        initial_session = {
-         command = "mango";
+         command = "lemon";
          user = "your-username"; # auto-login on first start, no password required
        };
        default_session = {
-         command = "${pkgs.greetd.tuigreet}/bin/tuigreet --cmd mango";
+         command = "${pkgs.greetd.tuigreet}/bin/tuigreet --cmd lemon";
          user = "greeter";
        };
      };
    };
    ```
 
-   **Option B — Display manager autologin:** Autologin via an existing display manager (e.g. SDDM, GDM). [`addLoginEntry`](/docs/nix-options#addloginentry) (default: `true`) automatically registers mango as a session.
+   **Option B — Display manager autologin:** Autologin via an existing display manager (e.g. SDDM, GDM). [`addLoginEntry`](/docs/nix-options#addloginentry) (default: `true`) automatically registers lemon as a session.
 
    ```nix
    services.displayManager = {
-     defaultSession = "mango"; # derived from mango.desktop filename
+     defaultSession = "lemon"; # derived from lemon.desktop filename
      autoLogin = {
        enable = true;
        user = "your-username";
@@ -214,7 +214,7 @@ The repository provides a Flake with a NixOS module.
    };
    ```
 
-   **Option C — getty autologin:** No login screen, boots directly into mango on TTY1.
+   **Option C — getty autologin:** No login screen, boots directly into lemon on TTY1.
 
    For bash/zsh:
 
@@ -222,7 +222,7 @@ The repository provides a Flake with a NixOS module.
    services.getty.autologinUser = "your-username";
 
    environment.loginShellInit = ''
-     [ "$(tty)" = /dev/tty1 ] && exec mango
+     [ "$(tty)" = /dev/tty1 ] && exec lemon
    '';
    ```
 
@@ -233,7 +233,7 @@ The repository provides a Flake with a NixOS module.
 
    programs.fish.loginShellInit = ''
      if test (tty) = /dev/tty1
-         exec mango
+         exec lemon
      end
    '';
    ```
@@ -246,19 +246,19 @@ The repository provides a Flake with a NixOS module.
 
 ### PikaOS
 
-mangowm is available in the **PikaOS package repository**.
+lemonwm is available in the **PikaOS package repository**.
 
 You can install it using the `pikman` package manager:
 
 ```bash
-pikman install mangowm
+pikman install lemonwm
 ```
 
 ---
 
 ## Building from Source
 
-If your distribution isn't listed above, or you want the latest unreleased changes, you can build mangowm from source.
+If your distribution isn't listed above, or you want the latest unreleased changes, you can build lemonwm from source.
 
 > **Info:** Ensure the following dependencies are installed before proceeding:
 >
@@ -298,11 +298,11 @@ You will need to build `wlroots` and `scenefx` manually as well.
    sudo ninja -C build install
    ```
 
-3. **Build mangowm**
+3. **Build lemonwm**
    Finally, compile the compositor itself.
    ```bash
-   git clone https://github.com/mangowm/mango.git
-   cd mango
+   git clone https://github.com/lemonwm/lemon.git
+   cd lemon
    meson build -Dprefix=/usr
    sudo ninja -C build install
    ```

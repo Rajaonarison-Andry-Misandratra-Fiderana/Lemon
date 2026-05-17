@@ -22,8 +22,8 @@ let
 
   # Declaration entry linking each option back to its source file on GitHub
   moduleDeclaration = {
-    url = "https://github.com/mangowm/mango/blob/main/${moduleSubpath}";
-    name = "<mango/${moduleSubpath}>";
+    url = "https://github.com/lemonwm/lemon/blob/main/${moduleSubpath}";
+    name = "<lemon/${moduleSubpath}>";
   };
 
   optionsDoc = pkgs.nixosOptionsDoc {
@@ -33,7 +33,7 @@ let
       opt
       // {
         visible = opt.visible && !opt.internal;
-        # Strip the option prefix so docs show "enable" instead of "programs.mango.enable"
+        # Strip the option prefix so docs show "enable" instead of "programs.lemon.enable"
         name = lib.removePrefix optionPrefix opt.name;
         declarations = [ moduleDeclaration ];
       };

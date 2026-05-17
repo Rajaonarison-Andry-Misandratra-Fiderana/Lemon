@@ -1,11 +1,11 @@
 ---
 
 title: Screenshots
-description: Example screenshot keybindings and capture workflows for mangowm.
+description: Example screenshot keybindings and capture workflows for lemonwm.
 
 ---
 
-mangowm does not include a built-in screenshot tool. This keeps the compositor lean.
+lemonwm does not include a built-in screenshot tool. This keeps the compositor lean.
 Instead, compose your own workflow from small Wayland utilities and bind them to keys;
 
 | Tool | Purpose |
@@ -79,14 +79,14 @@ move it into a script and invoke it with `spawn` instead of `spawn_shell`.
 Create the scripts directory first:
 
 ```bash
-mkdir -p ~/.config/mango/scripts/screenshot
+mkdir -p ~/.config/lemon/scripts/screenshot
 ```
 
 ### Window
 
-Uses `mmsg` (ships with mango) to capture the focused window.
+Uses `mmsg` (ships with lemon) to capture the focused window.
 
-`~/.config/mango/scripts/screenshot/window.sh`:
+`~/.config/lemon/scripts/screenshot/window.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -96,14 +96,14 @@ grim -g "$geometry" "$HOME/Pictures/Screenshots/$(date +%Y%m%d%H%M%S).png"
 ```
 
 ```ini
-bind=CTRL+SHIFT,Print,spawn,$HOME/.config/mango/scripts/screenshot/window.sh
+bind=CTRL+SHIFT,Print,spawn,$HOME/.config/lemon/scripts/screenshot/window.sh
 ```
 
 ### Freeze
 
 Freezes the screen with `wayfreeze` before capturing.
 
-`~/.config/mango/scripts/screenshot/freeze.sh`:
+`~/.config/lemon/scripts/screenshot/freeze.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -118,14 +118,14 @@ rm -f "$pipe"
 ```
 
 ```ini
-bind=CTRL+SUPER,Print,spawn,$HOME/.config/mango/scripts/screenshot/freeze.sh
+bind=CTRL+SUPER,Print,spawn,$HOME/.config/lemon/scripts/screenshot/freeze.sh
 ```
 
 ### Freeze + Region
 
 Freeze, then select a region with `slurp`. Cleans up on cancel.
 
-`~/.config/mango/scripts/screenshot/freeze-region.sh`:
+`~/.config/lemon/scripts/screenshot/freeze-region.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -146,13 +146,13 @@ rm -f "$pipe"
 ```
 
 ```ini
-bind=SHIFT+SUPER,Print,spawn,$HOME/.config/mango/scripts/screenshot/freeze-region.sh
+bind=SHIFT+SUPER,Print,spawn,$HOME/.config/lemon/scripts/screenshot/freeze-region.sh
 ```
 
 Make all three scripts executable:
 
 ```bash
-chmod +x ~/.config/mango/scripts/screenshot/*.sh
+chmod +x ~/.config/lemon/scripts/screenshot/*.sh
 ```
 
 ## All-in-One Script
@@ -160,7 +160,7 @@ chmod +x ~/.config/mango/scripts/screenshot/*.sh
 Prefer fewer files? A single script with subcommands covers every mode above.
 Place it in the same directory and use it in place of the individual scripts.
 
-`~/.config/mango/scripts/screenshot/screenshot.sh`:
+`~/.config/lemon/scripts/screenshot/screenshot.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -198,16 +198,16 @@ Make the script executable:
 
 
 ```bash
-chmod +x ~/.config/mango/scripts/screenshot/screenshot.sh
+chmod +x ~/.config/lemon/scripts/screenshot/screenshot.sh
 ```
 
 Then add the binds to `config.conf`:
 
 ```ini
-bind=NONE,Print,spawn,$HOME/.config/mango/scripts/screenshot/screenshot.sh fullscreen
-bind=SHIFT,Print,spawn,$HOME/.config/mango/scripts/screenshot/screenshot.sh region
-bind=CTRL+SHIFT,Print,spawn,$HOME/.config/mango/scripts/screenshot/screenshot.sh window
-bind=CTRL+SUPER,Print,spawn,$HOME/.config/mango/scripts/screenshot/screenshot.sh freeze
-bind=SHIFT+SUPER,Print,spawn,$HOME/.config/mango/scripts/screenshot/screenshot.sh freeze-region
-bind=SUPER,Print,spawn,$HOME/.config/mango/scripts/screenshot/screenshot.sh annotate
+bind=NONE,Print,spawn,$HOME/.config/lemon/scripts/screenshot/screenshot.sh fullscreen
+bind=SHIFT,Print,spawn,$HOME/.config/lemon/scripts/screenshot/screenshot.sh region
+bind=CTRL+SHIFT,Print,spawn,$HOME/.config/lemon/scripts/screenshot/screenshot.sh window
+bind=CTRL+SUPER,Print,spawn,$HOME/.config/lemon/scripts/screenshot/screenshot.sh freeze
+bind=SHIFT+SUPER,Print,spawn,$HOME/.config/lemon/scripts/screenshot/screenshot.sh freeze-region
+bind=SUPER,Print,spawn,$HOME/.config/lemon/scripts/screenshot/screenshot.sh annotate
 ```

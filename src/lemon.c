@@ -941,7 +941,7 @@ static struct wlr_virtual_pointer_manager_v1 *virtual_pointer_mgr;
 static struct wlr_output_power_manager_v1 *power_mgr;
 static struct wlr_pointer_gestures_v1 *pointer_gestures;
 static struct wlr_drm_lease_v1_manager *drm_lease_manager;
-struct mango_print_status_manager *print_status_manager;
+struct lemon_print_status_manager *print_status_manager;
 
 static struct wlr_cursor *cursor;
 static struct wlr_xcursor_manager *cursor_mgr;
@@ -1038,7 +1038,7 @@ struct Pertag {
 };
 #include "config/parse_config.h"
 
-static struct wl_signal mango_print_status;
+static struct wl_signal lemon_print_status;
 
 static struct wl_listener print_status_listener = {.notify =
 													   handle_print_status};
@@ -4936,7 +4936,7 @@ void pointerfocus(Client *c, struct wlr_surface *surface, double sx, double sy,
 }
 
 // 修改printstatus函数，接受掩码参数
-void printstatus(void) { wl_signal_emit(&mango_print_status, NULL); }
+void printstatus(void) { wl_signal_emit(&lemon_print_status, NULL); }
 
 void powermgrsetmode(struct wl_listener *listener, void *data) {
 	struct wlr_output_power_v1_set_mode_event *event = data;
@@ -5927,7 +5927,7 @@ void handle_print_status(struct wl_listener *listener, void *data) {
 
 void setup(void) {
 
-	setenv("XDG_CURRENT_DESKTOP", "mango", 1);
+	setenv("XDG_CURRENT_DESKTOP", "lemon", 1);
 	setenv("_JAVA_AWT_WM_NONREPARENTING", "1", 1);
 
 	parse_config();
@@ -6025,8 +6025,8 @@ void setup(void) {
 	wlr_ext_data_control_manager_v1_create(dpy, 1);
 
 	// 在 setup 函数中
-	wl_signal_init(&mango_print_status);
-	wl_signal_add(&mango_print_status, &print_status_listener);
+	wl_signal_init(&lemon_print_status);
+	wl_signal_add(&lemon_print_status, &print_status_listener);
 
 	/* Initializes the interface used to implement urgency hints */
 	activation = wlr_xdg_activation_v1_create(dpy);
@@ -7083,7 +7083,7 @@ int32_t main(int32_t argc, char *argv[]) {
 		} else if (c == 'd') {
 			cli_debug_log = true;
 		} else if (c == 'v') {
-			printf("mango " VERSION "\n");
+			printf("lemon " VERSION "\n");
 			return EXIT_SUCCESS;
 		} else if (c == 'c') {
 			cli_config_path = optarg;
@@ -7106,10 +7106,10 @@ int32_t main(int32_t argc, char *argv[]) {
 	cleanup();
 	return EXIT_SUCCESS;
 usage:
-	printf("Usage: mango [OPTIONS]\n"
+	printf("Usage: lemon [OPTIONS]\n"
 		   "\n"
 		   "Options:\n"
-		   "  -v             Show mango version\n"
+		   "  -v             Show lemon version\n"
 		   "  -d             Enable debug log\n"
 		   "  -c <file>      Use custom configuration file\n"
 		   "  -s <command>   Execute startup command\n"

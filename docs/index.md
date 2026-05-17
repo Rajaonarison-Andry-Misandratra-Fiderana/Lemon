@@ -4,13 +4,13 @@ description: A lightweight and feature-rich Wayland compositor based on dwl.
 ---
 
 
-**mango** is a Wayland compositor based on [dwl](https://codeberg.org/dwl/dwl/). It aims to be as lightweight as `dwl` and can be built completely within a few seconds, without compromising on functionality.
+**lemon** is a Wayland compositor based on [dwl](https://codeberg.org/dwl/dwl/). It aims to be as lightweight as `dwl` and can be built completely within a few seconds, without compromising on functionality.
 
-> **Philosophy:** **Lightweight & Fast**: mango is designed to be minimal yet functional. It compiles in seconds and offers a robust set of features out of the box.
+> **Philosophy:** **Lightweight & Fast**: lemon is designed to be minimal yet functional. It compiles in seconds and offers a robust set of features out of the box.
 
 ## Feature Highlights
 
-Beyond basic window management, mangowm provides a rich set of features designed for a modern Wayland experience.
+Beyond basic window management, lemonwm provides a rich set of features designed for a modern Wayland experience.
 
 - **[Animations](/docs/visuals/animations)** — Smooth, customizable animations for opening, moving, closing windows and tag switching.
 - **[Layouts](/docs/window-management/layouts)** — Supports Scroller, Master-Stack, Monocle, Grid, Deck, and more, with per-tag layouts.
@@ -28,8 +28,8 @@ Beyond basic window management, mangowm provides a rich set of features designed
 
 ## Community
 
-- **[Join the mangowm Discord](https://discord.gg/CPjbDxesh5)** — Chat with the community, get support, share your setup, and stay updated with the latest mangowm news.
-- **[Join the GitHub Discussions](https://github.com/mangowm/mango/discussions)** — Ask questions, request features, report issues, or share ideas directly with contributors and other users.
+- **[Join the lemonwm Discord](https://discord.gg/CPjbDxesh5)** — Chat with the community, get support, share your setup, and stay updated with the latest lemonwm news.
+- **[Join the GitHub Discussions](https://github.com/lemonwm/lemon/discussions)** — Ask questions, request features, report issues, or share ideas directly with contributors and other users.
 
 ## Acknowledgements
 

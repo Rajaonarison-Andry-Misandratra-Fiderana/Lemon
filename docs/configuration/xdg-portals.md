@@ -7,10 +7,10 @@ description: Set up screen sharing, clipboard, keyring, and file pickers using X
 
 You can customize portal settings via the following paths:
 
-- **User Configuration (Priority):** `~/.config/xdg-desktop-portal/mango-portals.conf`
-- **System Fallback:** `/usr/share/xdg-desktop-portal/mango-portals.conf`
+- **User Configuration (Priority):** `~/.config/xdg-desktop-portal/lemon-portals.conf`
+- **System Fallback:** `/usr/share/xdg-desktop-portal/lemon-portals.conf`
 
-> **Warning:** If you previously added `dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=wlroots` to your config, remove it. Mango now handles this automatically.
+> **Warning:** If you previously added `dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=wlroots` to your config, remove it. Lemon now handles this automatically.
 
 ## Screen Sharing
 
@@ -32,7 +32,7 @@ To enable screen sharing (OBS, Discord, WebRTC), you need `xdg-desktop-portal-wl
 
 ### Known Issues
 
-- **Window screen sharing:** Some applications may have issues sharing individual windows. See [#184](https://github.com/mangowm/mango/pull/184) for workarounds.
+- **Window screen sharing:** Some applications may have issues sharing individual windows. See [#184](https://github.com/lemonwm/lemon/pull/184) for workarounds.
 
 - **Screen recording lag:** If you experience stuttering during screen recording, see [xdg-desktop-portal-wlr#351](https://github.com/emersion/xdg-desktop-portal-wlr/issues/351).
 
@@ -58,7 +58,7 @@ If you need to store passwords or secrets (e.g., for VS Code or Minecraft launch
 
 **Configuration:**
 
-Add the following to `~/.config/xdg-desktop-portal/mango-portals.conf`:
+Add the following to `~/.config/xdg-desktop-portal/lemon-portals.conf`:
 
 ```ini
 [preferred]

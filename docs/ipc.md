@@ -1,11 +1,11 @@
 ---
 title: IPC
-description: Control mangowm programmatically using mmsg.
+description: Control lemonwm programmatically using mmsg.
 ---
 
 ## Introduction
 
-mangowm includes a powerful IPC (Inter-Process Communication) tool called `mmsg`. This allows you to query the window manager's state, watch for events, and execute commands from external scripts.
+lemonwm includes a powerful IPC (Inter-Process Communication) tool called `mmsg`. This allows you to query the window manager's state, watch for events, and execute commands from external scripts.
 
 ## Basic Usage
 
@@ -21,7 +21,7 @@ mmsg [-o <output>] (-g | -w) [-OotlcvmfxekbA]
 
 | Flag | Description |
 | :--- | :--- |
-| `-q` | Quit mangowm. |
+| `-q` | Quit lemonwm. |
 | `-g` | **Get** values (tags, layout, focused client). |
 | `-s` | **Set** values (switch tags, layouts). |
 | `-w` | **Watch** mode (streams events). |
