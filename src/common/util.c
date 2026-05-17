@@ -1,0 +1,256 @@
+/* See LICENSE.dwm file for copyright and license details. */
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "util.h"
+
+#define PCRE2_CODE_UNIT_WIDTH 8
+#include <pcre2.h>
+
+void die(const char *fmt, ...) {
+	va_list ap;
+
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+
+	if (fmt[0] && fmt[strlen(fmt) - 1] == ':') {
+		fputc(' ', stderr);
+		perror(NULL);
+	} else {
+		fputc('\n', stderr);
+	}
+
+	exit(1);
+}
+
+void *ecalloc(size_t nmemb, size_t size) {
+	void *p;
+
+	if (!(p = calloc(nmemb, size)))
+		die("calloc:");
+	return p;
+}
+
+int32_t fd_set_nonblock(int32_t fd) {
+	int32_t flags = fcntl(fd, F_GETFL);
+	if (flags < 0) {
+		perror("fcntl(F_GETFL):");
+		return -1;
+	}
+	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+		perror("fcntl(F_SETFL):");
+		return -1;
+	}
+
+	return 0;
+}
+
+#define REGEX_CACHE_SIZE 32
+
+struct regex_cache_entry {
+	char *pattern;
+	pcre2_code *re;
+	pcre2_match_data *match_data;
+	uint64_t last_used;
+};
+
+static struct regex_cache_entry regex_cache[REGEX_CACHE_SIZE];
+static uint64_t regex_cache_clock = 0;
+
+static pcre2_code *regex_cache_lookup(const char *pattern,
+                                      pcre2_match_data **out_md) {
+	for (int32_t i = 0; i < REGEX_CACHE_SIZE; i++) {
+		if (regex_cache[i].pattern &&
+		    strcmp(regex_cache[i].pattern, pattern) == 0) {
+			regex_cache[i].last_used = ++regex_cache_clock;
+			*out_md = regex_cache[i].match_data;
+			return regex_cache[i].re;
+		}
+	}
+	return NULL;
+}
+
+static void regex_cache_insert(const char *pattern, pcre2_code *re,
+                               pcre2_match_data *md) {
+	int32_t lru_idx = 0;
+	uint64_t lru_age = UINT64_MAX;
+	for (int32_t i = 0; i < REGEX_CACHE_SIZE; i++) {
+		if (!regex_cache[i].pattern) {
+			lru_idx = i;
+			break;
+		}
+		if (regex_cache[i].last_used < lru_age) {
+			lru_age = regex_cache[i].last_used;
+			lru_idx = i;
+		}
+	}
+	if (regex_cache[lru_idx].pattern) {
+		free(regex_cache[lru_idx].pattern);
+		pcre2_match_data_free(regex_cache[lru_idx].match_data);
+		pcre2_code_free(regex_cache[lru_idx].re);
+	}
+	regex_cache[lru_idx].pattern = strdup(pattern);
+	regex_cache[lru_idx].re = re;
+	regex_cache[lru_idx].match_data = md;
+	regex_cache[lru_idx].last_used = ++regex_cache_clock;
+}
+
+int32_t regex_match(const char *pattern, const char *str) {
+	int32_t errnum;
+	PCRE2_SIZE erroffset;
+
+	if (!pattern || !str) {
+		return 0;
+	}
+
+	pcre2_match_data *match_data = NULL;
+	pcre2_code *re = regex_cache_lookup(pattern, &match_data);
+
+	if (!re) {
+		re = pcre2_compile((PCRE2_SPTR)pattern, PCRE2_ZERO_TERMINATED,
+		                   PCRE2_UTF, &errnum, &erroffset, NULL);
+		if (!re) {
+			PCRE2_UCHAR errbuf[256];
+			pcre2_get_error_message(errnum, errbuf, sizeof(errbuf));
+			fprintf(stderr, "PCRE2 error: %s at offset %zu\n", errbuf, erroffset);
+			return 0;
+		}
+		match_data = pcre2_match_data_create_from_pattern(re, NULL);
+		regex_cache_insert(pattern, re, match_data);
+	}
+
+	int32_t ret =
+		pcre2_match(re, (PCRE2_SPTR)str, strlen(str), 0, 0, match_data, NULL);
+	return ret >= 0;
+}
+
+void wl_list_append(struct wl_list *list, struct wl_list *object) {
+	wl_list_insert(list->prev, object);
+}
+
+uint32_t get_now_in_ms(void) {
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
+	return timespec_to_ms(&now);
+}
+
+uint32_t timespec_to_ms(struct timespec *ts) {
+	return (uint32_t)ts->tv_sec * 1000 + (uint32_t)ts->tv_nsec / 1000000;
+}
+
+static struct timespec frame_clock_cached_ts;
+static uint32_t frame_clock_cached_ms;
+static bool frame_clock_cached_valid = false;
+
+void frame_clock_begin(void) {
+	clock_gettime(CLOCK_MONOTONIC, &frame_clock_cached_ts);
+	frame_clock_cached_ms = timespec_to_ms(&frame_clock_cached_ts);
+	frame_clock_cached_valid = true;
+}
+
+void frame_clock_end(void) {
+	frame_clock_cached_valid = false;
+}
+
+uint32_t frame_now_ms(void) {
+	if (frame_clock_cached_valid)
+		return frame_clock_cached_ms;
+	return get_now_in_ms();
+}
+
+void frame_clock_now_timespec(struct timespec *ts) {
+	if (frame_clock_cached_valid) {
+		*ts = frame_clock_cached_ts;
+		return;
+	}
+	clock_gettime(CLOCK_MONOTONIC, ts);
+}
+
+char *join_strings(char *arr[], const char *sep) {
+	if (!arr || !arr[0]) {
+		char *empty = malloc(1);
+		if (empty)
+			empty[0] = '\0';
+		return empty;
+	}
+
+	size_t total_len = 0;
+	int count = 0;
+	for (int i = 0; arr[i] != NULL; i++) {
+		total_len += strlen(arr[i]);
+		count++;
+	}
+	if (count > 0) {
+		total_len += strlen(sep) * (count - 1);
+	}
+
+	char *result = malloc(total_len + 1);
+	if (!result)
+		return NULL;
+
+	result[0] = '\0';
+	for (int i = 0; arr[i] != NULL; i++) {
+		if (i > 0)
+			strcat(result, sep);
+		strcat(result, arr[i]);
+	}
+	return result;
+}
+
+char *join_strings_with_suffix(char *arr[], const char *suffix,
+							   const char *sep) {
+	if (!arr || !arr[0]) {
+		char *empty = malloc(1);
+		if (empty)
+			empty[0] = '\0';
+		return empty;
+	}
+
+	size_t total_len = 0;
+	int count = 0;
+	for (int i = 0; arr[i] != NULL; i++) {
+		total_len += strlen(arr[i]) + strlen(suffix);
+		count++;
+	}
+	if (count > 0) {
+		total_len += strlen(sep) * (count - 1);
+	}
+
+	char *result = malloc(total_len + 1);
+	if (!result)
+		return NULL;
+
+	result[0] = '\0';
+	for (int i = 0; arr[i] != NULL; i++) {
+		if (i > 0)
+			strcat(result, sep);
+		strcat(result, arr[i]);
+		strcat(result, suffix);
+	}
+	return result;
+}
+
+char *string_printf(const char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	int len = vsnprintf(NULL, 0, fmt, args);
+	va_end(args);
+	if (len < 0)
+		return NULL;
+
+	char *str = malloc(len + 1);
+	if (!str)
+		return NULL;
+
+	va_start(args, fmt);
+	vsnprintf(str, len + 1, fmt, args);
+	va_end(args);
+	return str;
+}

@@ -1,0 +1,4 @@
+option('xwayland', type : 'feature', value : 'enabled')
+option('asan', type : 'boolean', value : false)
+option('native', type : 'boolean', value : false, description : 'Enable -march=native for local CPU tuning')
+option('lto', type : 'boolean', value : true, description : 'Enable link-time optimization for non-debug builds')
