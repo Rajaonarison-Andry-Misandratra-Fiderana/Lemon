@@ -28,7 +28,7 @@ Any directory works. `~/Pictures/Screenshots/` is just a convention.
 
 ## Quick Binds
 
-Short, single-step commands can be placed directly in `config.conf` with `spawn_shell`.
+Short, single-step commands can be placed directly in `lemon.conf` with `spawn_shell`.
 No script file needed.
 
 ### Fullscreen
@@ -201,7 +201,7 @@ Make the script executable:
 chmod +x ~/.config/lemon/scripts/screenshot/screenshot.sh
 ```
 
-Then add the binds to `config.conf`:
+Then add the binds to `lemon.conf`:
 
 ```ini
 bind=NONE,Print,spawn,$HOME/.config/lemon/scripts/screenshot/screenshot.sh fullscreen

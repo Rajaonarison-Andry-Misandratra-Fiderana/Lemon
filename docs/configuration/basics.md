@@ -9,7 +9,7 @@ lemonwm uses a simple configuration file format. By default, it looks for a conf
 
 1. **Locate Default Config**
 
-   A fallback configuration is provided at `/etc/lemon/config.conf`. You can use this as a reference.
+   A fallback configuration is provided at `/etc/lemon/lemon.conf`. You can use this as a reference.
 
 2. **Create User Config**
 
@@ -17,7 +17,7 @@ lemonwm uses a simple configuration file format. By default, it looks for a conf
 
    ```bash
    mkdir -p ~/.config/lemon
-   cp /etc/lemon/config.conf ~/.config/lemon/config.conf
+   cp /etc/lemon/lemon.conf ~/.config/lemon/lemon.conf
    ```
 
 3. **Launch with Custom Config (Optional)**
@@ -25,7 +25,7 @@ lemonwm uses a simple configuration file format. By default, it looks for a conf
    If you prefer to keep your config elsewhere, you can launch lemon with the `-c` flag.
 
    ```bash
-   lemon -c /path/to/your_config.conf
+   lemon -c /path/to/your_lemon.conf
    ```
 
 ### Sub-Configuration
@@ -48,7 +48,7 @@ source-optional=~/.config/lemon/optional.conf
 You can check your configuration for errors without starting lemonwm:
 
 ```bash
-lemon -c /path/to/config.conf -p
+lemon -c /path/to/lemon.conf -p
 ```
 
 Use with `source-optional` for shared configs across different setups.

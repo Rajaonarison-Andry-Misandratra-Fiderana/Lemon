@@ -76,7 +76,7 @@ mmsg -l "T"
 
 ### Dispatching Commands
 
-Any command available in `config.conf` keybindings can be run via IPC.
+Any command available in `lemon.conf` keybindings can be run via IPC.
 
 ```bash
 # Close the focused window

@@ -17,10 +17,10 @@ Now that you have lemonwm installed, let's get your environment set up.
 
 2. **Copy Default Config**
 
-   A default configuration file is provided at `/etc/lemon/config.conf`. Copy it to your local directory to start customizing.
+   A default configuration file is provided at `/etc/lemon/lemon.conf`. Copy it to your local directory to start customizing.
 
    ```bash
-   cp /etc/lemon/config.conf ~/.config/lemon/config.conf
+   cp /etc/lemon/lemon.conf ~/.config/lemon/lemon.conf
    ```
 
 3. **Launch lemonwm**
@@ -34,7 +34,7 @@ Now that you have lemonwm installed, let's get your environment set up.
    Optional: To specify a custom config file path:
 
    ```bash
-   lemon -c /path/to/your/config.conf
+   lemon -c /path/to/your/lemon.conf
    ```
 
 ## Essential Keybindings
@@ -52,7 +52,7 @@ lemonwm uses the following keybinds by default:
 | `Ctrl` + `1-9` | Switch to Tag 1-9 |
 | `Alt` + `1-9` | Move window to Tag 1-9 |
 
-> **Warning:** Some default bindings rely on specific tools like `foot` (terminal) and `rofi` (launcher). Ensure you have them installed or update your `config.conf` to use your preferred alternatives.
+> **Warning:** Some default bindings rely on specific tools like `foot` (terminal) and `rofi` (launcher). Ensure you have them installed or update your `lemon.conf` to use your preferred alternatives.
 
 ## Recommended Tools
 

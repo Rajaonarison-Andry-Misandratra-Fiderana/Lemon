@@ -3621,16 +3621,9 @@ bool parse_config(void) {
 			// 如果获取失败，则无法继续
 			return false;
 		}
-		// 构建日志文件路径
-		snprintf(filename, sizeof(filename), "%s/.config/lemon/config.conf",
+		// Config path: only ~/.config/lemon/lemon.conf
+		snprintf(filename, sizeof(filename), "%s/.config/lemon/lemon.conf",
 				 homedir);
-
-		// 检查文件是否存在
-		if (access(filename, F_OK) != 0) {
-			// 如果文件不存在，则使用 /etc/lemon/config.conf
-			snprintf(filename, sizeof(filename), "%s/lemon/config.conf",
-					 SYSCONFDIR);
-		}
 	}
 
 	bool parse_correct = true;
