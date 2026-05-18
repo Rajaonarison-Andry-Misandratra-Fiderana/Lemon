@@ -1998,7 +1998,7 @@ bool pointer_is_trackpad(struct wlr_pointer *pointer) {
 }
 
 /* Listener: pointer axis (scroll) — dispatch axis bindings or forward to focused client. */
-void
+LEMON_HOT void
 axisnotify(struct wl_listener *listener, void *data) {
 	
 	struct wlr_pointer_axis_event *event = data;
@@ -2269,7 +2269,7 @@ bool check_trackpad_disabled(struct wlr_pointer *pointer) {
 }
 
 /* Listener: pointer button — refocus client, run mouse bindings, end drag/resize on release. */
-void
+LEMON_HOT void
 buttonpress(struct wl_listener *listener, void *data) {
 	struct wlr_pointer_button_event *event = data;
 	struct wlr_keyboard *hard_keyboard, *keyboard;
