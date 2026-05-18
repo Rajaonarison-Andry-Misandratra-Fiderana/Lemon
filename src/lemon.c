@@ -4063,7 +4063,7 @@ done:
 	return reset;
 }
 
-void keypress(struct wl_listener *listener, void *data) {
+LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 	int32_t i;
 	
 	KeyboardGroup *group = wl_container_of(listener, group, key);
@@ -4508,7 +4508,7 @@ void minimizenotify(struct wl_listener *listener, void *data) {
 	}
 }
 
-void motionabsolute(struct wl_listener *listener, void *data) {
+LEMON_HOT void motionabsolute(struct wl_listener *listener, void *data) {
 	
 	struct wlr_pointer_motion_absolute_event *event = data;
 	double lx, ly, dx, dy;
@@ -4552,7 +4552,7 @@ void resize_floating_window(Client *grabc) {
 	grabcy += cdy;
 }
 
-void motionnotify(uint32_t time, struct wlr_input_device *device, double dx,
+LEMON_HOT void motionnotify(uint32_t time, struct wlr_input_device *device, double dx,
 				  double dy, double dx_unaccel, double dy_unaccel) {
 	double sx = 0, sy = 0, sx_confined, sy_confined;
 	Client *c = NULL, *w = NULL;
@@ -4702,7 +4702,7 @@ void motionnotify(uint32_t time, struct wlr_input_device *device, double dx,
 	}
 }
 
-void motionrelative(struct wl_listener *listener, void *data) {
+LEMON_HOT void motionrelative(struct wl_listener *listener, void *data) {
 	
 	struct wlr_pointer_motion_event *event = data;
 	
