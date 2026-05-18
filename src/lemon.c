@@ -4206,7 +4206,8 @@ static void iter_xdg_scene_buffers(struct wlr_scene_buffer *buffer, int32_t sx,
 	if (wlr_subsurface_try_from_wlr_surface(surface) != NULL)
 		return;
 
-	if (config.blur && c && !c->noblur) {
+	if (config.blur && c && !c->noblur && !c->isfullscreen &&
+		!c->ismaximizescreen) {
 		wlr_scene_buffer_set_backdrop_blur(buffer, true);
 		wlr_scene_buffer_set_backdrop_blur_ignore_transparent(buffer, false);
 		if (config.blur_optimized) {
@@ -5555,8 +5556,12 @@ void setfullscreen(Client *c, int32_t fullscreen)
 
 	int32_t old_fullscreen_state = c->isfullscreen;
 	c->isfullscreen = fullscreen;
-	if (old_fullscreen_state != fullscreen)
+	if (old_fullscreen_state != fullscreen) {
 		c->focus_opacity_dirty = true;
+		if (c->scene_surface)
+			wlr_scene_node_for_each_buffer(&c->scene_surface->node,
+										   iter_xdg_scene_buffers, c);
+	}
 
 	client_set_fullscreen(c, fullscreen);
 	client_pending_fullscreen_state(c, fullscreen);
