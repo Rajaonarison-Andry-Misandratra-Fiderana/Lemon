@@ -16,6 +16,7 @@
 #include <signal.h>
 #include <spawn.h>
 #include <sched.h>
+#include <malloc.h>
 #include <sys/mman.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -4841,10 +4842,13 @@ static bool detect_on_battery(void) {
 	return !ac_online;
 }
 
-/* Re-read AC state periodically; reschedule self. */
+/* Re-read AC state periodically; reschedule self. Also nudges glibc to
+   release freed heap pages back to the kernel — long compositor sessions
+   accumulate freed-but-resident memory otherwise. */
 static int battery_poll_callback(void *data) {
 	(void)data;
 	on_battery = detect_on_battery();
+	malloc_trim(0);
 	wl_event_source_timer_update(battery_poll_source, 10000);
 	return 0;
 }
@@ -6820,6 +6824,13 @@ int32_t main(int32_t argc, char *argv[]) {
 
 	if (!getenv("XDG_RUNTIME_DIR"))
 		die("XDG_RUNTIME_DIR must be set");
+
+	/* Step 0: tighten glibc malloc heap behavior. Lower trim threshold so
+	   freed brk-region pages return to the kernel quickly (default 128 KB
+	   * 2^N grows unbounded). Lower mmap threshold so large allocations
+	   go through mmap and are munmap'd on free (cannot fragment heap). */
+	mallopt(M_TRIM_THRESHOLD, 128 * 1024);
+	mallopt(M_MMAP_THRESHOLD, 128 * 1024);
 
 	/* Step 1: best-effort soft realtime via SCHED_RR priority 1. Requires
 	   CAP_SYS_NICE or membership in 'realtime' group with appropriate limits
