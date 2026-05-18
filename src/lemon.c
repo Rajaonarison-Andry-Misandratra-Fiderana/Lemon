@@ -2,6 +2,7 @@
 #include "wlr-layer-shell-unstable-v1-protocol.h"
 #include "wlr/util/box.h"
 #include "wlr/util/edges.h"
+#include <dirent.h>
 #include <getopt.h>
 #include <libinput.h>
 #include <limits.h>
@@ -553,6 +554,8 @@ struct Monitor {
 	struct wl_listener destroy_lock_surface;
 	struct wlr_session_lock_surface_v1 *lock_surface;
 	struct wl_event_source *skip_frame_timeout;
+	struct wl_event_source *battery_frame_throttle;
+	uint32_t last_anim_schedule_ms;
 	struct wlr_box m;
 	struct wlr_box w;
 	struct wl_list layers[4];
@@ -858,6 +861,9 @@ static void init_client_properties(Client *c);
 static float *get_border_color(Client *c);
 static void clear_fullscreen_and_maximized_state(Monitor *m);
 static void request_fresh_all_monitors(void);
+static bool detect_on_battery(void);
+static int battery_poll_callback(void *data);
+static int battery_frame_throttle_callback(void *data);
 static Client *find_client_by_direction(Client *tc, const Arg *arg,
 										bool findfloating, bool ignore_align);
 static void exit_scroller_stack(Client *c);
@@ -982,6 +988,9 @@ bool render_border = true;
 
 uint32_t chvt_backup_tag = 0;
 bool allow_frame_scheduling = true;
+bool on_battery = false;
+static struct wl_event_source *battery_poll_source;
+#define BATTERY_ANIM_INTERVAL_MS 16u
 char chvt_backup_selmon[32] = {0};
 
 struct dvec2 *baked_points_move;
@@ -2543,6 +2552,10 @@ void cleanupmon(struct wl_listener *listener, void *data) {
 		wl_event_source_remove(m->skip_frame_timeout);
 		m->skip_frame_timeout = NULL;
 	}
+	if (m->battery_frame_throttle) {
+		wl_event_source_remove(m->battery_frame_throttle);
+		m->battery_frame_throttle = NULL;
+	}
 	m->wlr_output->data = NULL;
 
 	cleanup_monitor_dwindle(m);
@@ -3225,6 +3238,9 @@ void createmon(struct wl_listener *listener, void *data) {
 	m->iscleanuping = false;
 	m->skip_frame_timeout =
 		wl_event_loop_add_timer(loop, monitor_skip_frame_timeout_callback, m);
+	m->battery_frame_throttle =
+		wl_event_loop_add_timer(loop, battery_frame_throttle_callback, m);
+	m->last_anim_schedule_ms = 0;
 	m->skiping_frame = false;
 	m->resizing_count_pending = 0;
 	m->resizing_count_current = 0;
@@ -4850,6 +4866,54 @@ void monitor_check_skip_frame_timeout(Monitor *m) {
 	}
 }
 
+/* Return true when all detected AC adapters report offline (system on battery). */
+static bool detect_on_battery(void) {
+	DIR *d = opendir("/sys/class/power_supply");
+	if (!d)
+		return false;
+	bool found_ac = false;
+	bool ac_online = false;
+	struct dirent *e;
+	while ((e = readdir(d))) {
+		if (strncmp(e->d_name, "AC", 2) != 0 &&
+		    strncmp(e->d_name, "ADP", 3) != 0)
+			continue;
+		char path[320];
+		snprintf(path, sizeof(path), "/sys/class/power_supply/%s/online",
+		         e->d_name);
+		FILE *fp = fopen(path, "re");
+		if (!fp)
+			continue;
+		int v = 0;
+		if (fscanf(fp, "%d", &v) == 1) {
+			found_ac = true;
+			if (v)
+				ac_online = true;
+		}
+		fclose(fp);
+	}
+	closedir(d);
+	if (!found_ac)
+		return false;
+	return !ac_online;
+}
+
+/* Re-read AC state periodically; reschedule self. */
+static int battery_poll_callback(void *data) {
+	(void)data;
+	on_battery = detect_on_battery();
+	wl_event_source_timer_update(battery_poll_source, 10000);
+	return 0;
+}
+
+/* Deferred frame schedule used to cap animation FPS on battery. */
+static int battery_frame_throttle_callback(void *data) {
+	Monitor *m = data;
+	if (m->wlr_output && m->wlr_output->enabled && allow_frame_scheduling)
+		wlr_output_schedule_frame(m->wlr_output);
+	return 0;
+}
+
 LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 	Monitor *m = wl_container_of(listener, m, frame);
 	Client *c = NULL, *tmp = NULL;
@@ -4912,7 +4976,21 @@ skip:
 	wlr_scene_output_send_frame_done(m->scene_output, &now);
 
 	if (LEMON_UNLIKELY(need_more_frames && allow_frame_scheduling)) {
-		wlr_output_schedule_frame(m->wlr_output);
+		if (on_battery && m->battery_frame_throttle) {
+			uint32_t now_ms = frame_now_ms();
+			uint32_t elapsed = now_ms - m->last_anim_schedule_ms;
+			if (elapsed < BATTERY_ANIM_INTERVAL_MS) {
+				wl_event_source_timer_update(
+					m->battery_frame_throttle,
+					BATTERY_ANIM_INTERVAL_MS - elapsed);
+			} else {
+				m->last_anim_schedule_ms = now_ms;
+				wlr_output_schedule_frame(m->wlr_output);
+			}
+		} else {
+			m->last_anim_schedule_ms = frame_now_ms();
+			wlr_output_schedule_frame(m->wlr_output);
+		}
 	}
 
 	frame_clock_end();
@@ -5873,6 +5951,11 @@ void setup(void) {
 				  &request_set_cursor_shape);
 	hide_cursor_source = wl_event_loop_add_timer(wl_display_get_event_loop(dpy),
 												 hidecursor, cursor);
+
+	on_battery = detect_on_battery();
+	battery_poll_source = wl_event_loop_add_timer(
+		wl_display_get_event_loop(dpy), battery_poll_callback, NULL);
+	wl_event_source_timer_update(battery_poll_source, 10000);
 	
 	wl_list_init(&inputdevices);
 	wl_list_init(&keyboard_shortcut_inhibitors);
