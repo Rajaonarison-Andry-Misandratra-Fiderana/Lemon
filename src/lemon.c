@@ -4302,13 +4302,11 @@ mapnotify(struct wl_listener *listener, void *data) {
 		return;
 	}
 
+	/* splitindicator rects are only ever shown under the dwindle layout
+	   with dwindle_manual_split=true. Allocate them on first use inside
+	   apply_border() instead of paying the cost for every client. */
 	for (i = 0; i < 2; i++) {
-		c->splitindicator[i] = wlr_scene_rect_create(
-			c->scene, 0, 0,
-			c->isurgent ? config.urgentcolor : config.splitcolor);
-		c->splitindicator[i]->node.data = c;
-		wlr_scene_node_lower_to_bottom(&c->splitindicator[i]->node);
-		wlr_scene_node_set_enabled(&c->splitindicator[i]->node, false);
+		c->splitindicator[i] = NULL;
 	}
 
 	/* droparea scene rect is allocated lazily on first drag (rare event).

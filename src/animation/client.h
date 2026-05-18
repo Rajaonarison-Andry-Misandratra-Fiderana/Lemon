@@ -269,18 +269,28 @@ void apply_split_border(Client *c, bool hit_no_border) {
 
 	if (hit_no_border || !ISTILED(c) || layout->id != DWINDLE ||
 		!config.dwindle_manual_split) {
-		if (c->splitindicator[0]->node.enabled) {
+		if (c->splitindicator[0] && c->splitindicator[0]->node.enabled)
 			wlr_scene_node_set_enabled(&c->splitindicator[0]->node, false);
-		}
-		if (c->splitindicator[1]->node.enabled) {
+		if (c->splitindicator[1] && c->splitindicator[1]->node.enabled)
 			wlr_scene_node_set_enabled(&c->splitindicator[1]->node, false);
-		}
 		return;
 	} else {
 
 		DwindleNode **root =
 			&c->mon->pertag->dwindle_root[c->mon->pertag->curtag];
 		DwindleNode *dnode = dwindle_find_leaf(*root, c);
+
+		/* Lazy-allocate the split indicator rects on first dwindle entry. */
+		for (int32_t si = 0; si < 2; si++) {
+			if (!c->splitindicator[si]) {
+				c->splitindicator[si] = wlr_scene_rect_create(
+					c->scene, 0, 0,
+					c->isurgent ? config.urgentcolor : config.splitcolor);
+				c->splitindicator[si]->node.data = c;
+				wlr_scene_node_lower_to_bottom(&c->splitindicator[si]->node);
+				wlr_scene_node_set_enabled(&c->splitindicator[si]->node, false);
+			}
+		}
 
 		if (!dnode) {
 			wlr_scene_node_set_enabled(&c->splitindicator[0]->node, false);
