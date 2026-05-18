@@ -14,6 +14,8 @@ responsiveness, minimum latency and longest battery life**:
 - Per-monitor render loop (clients only ticked on `c->mon`) and per-client wakeups
 - Battery-aware adaptive FPS: animations cap at ~60 Hz on battery, full refresh on AC
 - `setpriority(-10)` at startup for snappier input under load
+- `posix_spawn` for keybind launches: no fork() page-table COW of the compositor address space
+- Cursor theme + xdg-desktop-portal warmed up at startup so the first app launched is instant
 - Blur and drop shadows are **not** rendered, keeping GPU work to the strict minimum
 
 ## Features

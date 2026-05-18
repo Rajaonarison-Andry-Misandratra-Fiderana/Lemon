@@ -107,6 +107,7 @@ the compositor.
 - **No blur, no shadow**: the compositor never enables backdrop blur or drop shadow scene nodes. Animations, opacity fades, corner radius and borders are all kept. Don't reintroduce `wlr_scene_optimized_blur`, `wlr_scene_shadow`, `config.blur*`, `config.shadows*`, `noblur`, or `noshadow` without explicit user request.
 - **Battery awareness**: global `on_battery` (polled every 10s from `/sys/class/power_supply/AC*/online`). When true, `rendermon` throttles animation frame scheduling to `BATTERY_ANIM_INTERVAL_MS` (16 ms ≈ 60 fps) via a per-monitor deferred timer.
 - **Per-monitor render loop**: `rendermon` iterates only clients whose `c->mon == m`. Animation start uses `request_fresh_for_client(c)` to wake only monitors where the client is currently rendered.
+- **App-launch latency**: `spawn` / `spawn_shell` use `posix_spawn` instead of `fork+exec` to skip the full page-table COW of the compositor's address space. Don't reintroduce `fork()` for child launching. Cursor theme is preloaded at scales 1 and 2 in `setup`. xdg-desktop-portal is warm-pinged at the end of `run` so the first GTK/Qt client does not pay the cold-start.
 
 ## Common tasks
 
