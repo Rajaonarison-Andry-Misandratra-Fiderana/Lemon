@@ -1323,22 +1323,24 @@ LEMON_HOT bool client_draw_frame(Client *c) {
 		return client_apply_focus_opacity(c);
 	}
 
-	/* Architecture brief §9: skip geometry animation when a fullscreen sibling
-	   on the same monitor fully obscures this client. Opacity is still ticked
-	   below since borders may overlap with the fullscreen edge. */
-	bool occluded_by_fullscreen = c->mon && c->mon->sel &&
-	                              c->mon->sel != c &&
-	                              c->mon->sel->isfullscreen &&
-	                              !c->isfloating;
-
-	if (config.animations && c->animation.running && !occluded_by_fullscreen) {
-		client_animation_next_tick(c);
-	} else if (config.animations && c->animation.running) {
-		/* Fast-forward to final state without further ticks. */
+	/* Architecture brief §9: throttle by render tier. HIDDEN never ticks;
+	   OCCLUDED caps at ~30 Hz; FOCUS/VISIBLE tick every frame. */
+	uint32_t now_ms = frame_now_ms();
+	if (c->render_tier == TIER_HIDDEN) {
 		c->animation.current = c->geom;
 		c->animation.running = false;
 		wlr_scene_node_set_position(&c->scene->node, c->geom.x, c->geom.y);
 		c->need_output_flush = false;
+		return false;
+	}
+	if (c->render_tier == TIER_OCCLUDED &&
+	    now_ms - c->tier_last_anim_ms < TIER_OCCLUDED_INTERVAL_MS) {
+		return c->animation.running;
+	}
+	c->tier_last_anim_ms = now_ms;
+
+	if (config.animations && c->animation.running) {
+		client_animation_next_tick(c);
 	} else {
 		wlr_scene_node_set_position(&c->scene->node, c->pending.x,
 									c->pending.y);

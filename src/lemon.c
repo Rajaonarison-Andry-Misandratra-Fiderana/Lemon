@@ -149,6 +149,10 @@
 enum { TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT };
 
 enum { VERTICAL, HORIZONTAL };
+enum { TIER_FOCUS = 0, TIER_VISIBLE = 1, TIER_OCCLUDED = 2, TIER_HIDDEN = 3 };
+#define TIER_OCCLUDED_INTERVAL_MS 33u
+#define TIER_HIDDEN_INTERVAL_MS 200u
+
 enum { SWIPE_UP, SWIPE_DOWN, SWIPE_LEFT, SWIPE_RIGHT };
 enum { CurNormal, CurPressed, CurMove, CurResize };
 enum { XDGShell, LayerShell, X11 };
@@ -440,6 +444,10 @@ struct Client {
 	int32_t isunglobal;
 	float focused_opacity;
 	float unfocused_opacity;
+	/* Architecture brief §9: render tier (0=FOCUS, 1=VISIBLE, 2=OCCLUDED, 3=HIDDEN).
+	   Recomputed on focus/layout change; checked in animation tick. */
+	uint8_t render_tier;
+	uint32_t tier_last_anim_ms;
 	char oldmonname[128];
 	double master_mfact_per, master_inner_per, stack_inner_per;
 	double old_master_mfact_per, old_master_inner_per, old_stack_inner_per;
@@ -1095,6 +1103,7 @@ static struct wl_event_source *sync_keymap;
 
 void request_fresh_all_monitors(void);
 void request_fresh_for_client(Client *c);
+static void recompute_render_tiers(void);
 
 #include "animation/client.h"
 #include "animation/common.h"
@@ -3648,6 +3657,33 @@ void destroykeyboardgroup(struct wl_listener *listener, void *data) {
 	free(group);
 }
 
+/* Architecture brief §9: recompute render tier for every mapped client.
+   Cheap: walks the clients list once and runs at most O(N) box checks. Called
+   from focusclient and after arrange, never on the per-frame hot path. */
+static void recompute_render_tiers(void) {
+	Client *c;
+	wl_list_for_each(c, &clients, link) {
+		if (!c->mon || !client_surface(c)->mapped) {
+			c->render_tier = TIER_HIDDEN;
+			continue;
+		}
+		if (!VISIBLEON(c, c->mon)) {
+			c->render_tier = TIER_HIDDEN;
+			continue;
+		}
+		if (c->mon->sel == c) {
+			c->render_tier = TIER_FOCUS;
+			continue;
+		}
+		Client *fs = c->mon->sel;
+		if (fs && fs != c && fs->isfullscreen && !c->isfloating) {
+			c->render_tier = TIER_OCCLUDED;
+			continue;
+		}
+		c->render_tier = TIER_VISIBLE;
+	}
+}
+
 void focusclient(Client *c, int32_t lift) {
 
 	Client *last_focus_client = NULL;
@@ -3692,6 +3728,7 @@ void focusclient(Client *c, int32_t lift) {
 		selmon->prevsel = selmon->sel;
 		selmon->sel = c;
 		c->isfocusing = true;
+		recompute_render_tiers();
 
 		check_keep_idle_inhibit(c);
 

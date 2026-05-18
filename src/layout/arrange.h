@@ -1283,5 +1283,6 @@ arrange(Monitor *m, bool want_animation, bool from_view) {
 		checkidleinhibitor(NULL);
 	}
 
+	recompute_render_tiers();
 	printstatus();
 }
