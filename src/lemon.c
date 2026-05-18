@@ -1406,12 +1406,10 @@ void gpureset(struct wl_listener *listener, void *data) {
 	wlr_log(WLR_DEBUG, "gpu reset");
 
 	const char *renderer_choice = getenv("LEMON_RENDERER");
-	if (renderer_choice && (strcmp(renderer_choice, "vulkan") == 0 ||
-	                        strcmp(renderer_choice, "gles2") == 0)) {
-		drw = wlr_renderer_autocreate(backend);
-	} else {
+	if (renderer_choice && strcmp(renderer_choice, "fx") == 0)
 		drw = fx_renderer_create(backend);
-	}
+	else
+		drw = wlr_renderer_autocreate(backend);
 	if (!drw)
 		die("couldn't recreate renderer");
 
@@ -5799,33 +5797,37 @@ void setup(void) {
 
 	/* Renderer selection.
 	 *
-	 *   LEMON_RENDERER=fx       (default) scenefx GLES2 fx_renderer — full fx
-	 *                                     pipeline: corner radius, opacity,
-	 *                                     animation scaling, fadeout snapshots.
-	 *   LEMON_RENDERER=vulkan   Plain wlr_renderer with WLR_RENDERER=vulkan —
-	 *                           Lower CPU overhead, better multi-output
-	 *                           presentation timing on modern GPUs. scenefx
-	 *                           effects fall back to no-op stubs (corner
-	 *                           radius and per-buffer opacity will not render).
-	 *   LEMON_RENDERER=gles2    Plain wlr_renderer GLES2 backend — for
-	 *                           comparing fx_renderer overhead.
+	 *   LEMON_RENDERER unset (default)
+	 *       Plain wlroots renderer via wlr_renderer_autocreate. Honours
+	 *       WLR_RENDERER=vulkan / gles2 if the user sets it; otherwise
+	 *       wlroots picks the best backend (typically Vulkan when Mesa
+	 *       Vulkan drivers are present, GLES2 fallback). Geometry
+	 *       animations and plain window borders render normally; corner
+	 *       radius, per-buffer opacity and fadeout-snapshot effects are
+	 *       skipped — by design, this fork doesn't need them.
+	 *
+	 *   LEMON_RENDERER=fx
+	 *       Opt back into the scenefx GLES2 fx_renderer. Re-enables
+	 *       corner radius, per-buffer opacity, and the close-anim
+	 *       snapshot fadeout. Use this if you want the full visual feel
+	 *       at the cost of Vulkan support.
+	 *
+	 *   LEMON_RENDERER=vulkan
+	 *       Force WLR_RENDERER=vulkan before autocreate (errors out on
+	 *       Mesa builds without Vulkan).
+	 *
+	 *   LEMON_RENDERER=gles2
+	 *       Force WLR_RENDERER=gles2 before autocreate.
 	 */
 	const char *renderer_choice = getenv("LEMON_RENDERER");
-	if (renderer_choice && strcmp(renderer_choice, "vulkan") == 0) {
-		setenv("WLR_RENDERER", "vulkan", 1);
-		drw = wlr_renderer_autocreate(backend);
-		if (drw)
-			wlr_log(WLR_INFO,
-			        "Lemon: Vulkan renderer active (scenefx fx pipeline "
-			        "disabled — corner radius and opacity will not render).");
-	} else if (renderer_choice && strcmp(renderer_choice, "gles2") == 0) {
-		setenv("WLR_RENDERER", "gles2", 1);
-		drw = wlr_renderer_autocreate(backend);
-		if (drw)
-			wlr_log(WLR_INFO,
-			        "Lemon: plain GLES2 renderer active (no scenefx effects).");
-	} else {
+	if (renderer_choice && strcmp(renderer_choice, "fx") == 0) {
 		drw = fx_renderer_create(backend);
+	} else {
+		if (renderer_choice && strcmp(renderer_choice, "vulkan") == 0)
+			setenv("WLR_RENDERER", "vulkan", 1);
+		else if (renderer_choice && strcmp(renderer_choice, "gles2") == 0)
+			setenv("WLR_RENDERER", "gles2", 1);
+		drw = wlr_renderer_autocreate(backend);
 	}
 
 	if (!drw)
