@@ -1323,8 +1323,22 @@ LEMON_HOT bool client_draw_frame(Client *c) {
 		return client_apply_focus_opacity(c);
 	}
 
-	if (config.animations && c->animation.running) {
+	/* Architecture brief §9: skip geometry animation when a fullscreen sibling
+	   on the same monitor fully obscures this client. Opacity is still ticked
+	   below since borders may overlap with the fullscreen edge. */
+	bool occluded_by_fullscreen = c->mon && c->mon->sel &&
+	                              c->mon->sel != c &&
+	                              c->mon->sel->isfullscreen &&
+	                              !c->isfloating;
+
+	if (config.animations && c->animation.running && !occluded_by_fullscreen) {
 		client_animation_next_tick(c);
+	} else if (config.animations && c->animation.running) {
+		/* Fast-forward to final state without further ticks. */
+		c->animation.current = c->geom;
+		c->animation.running = false;
+		wlr_scene_node_set_position(&c->scene->node, c->geom.x, c->geom.y);
+		c->need_output_flush = false;
 	} else {
 		wlr_scene_node_set_position(&c->scene->node, c->pending.x,
 									c->pending.y);
