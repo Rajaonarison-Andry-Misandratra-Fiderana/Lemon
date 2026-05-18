@@ -4887,9 +4887,10 @@ LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 	}
 
 	wl_list_for_each(c, &clients, link) {
+		if (LEMON_LIKELY(c->mon != m))
+			continue;
 		need_more_frames = client_draw_frame(c) || need_more_frames;
-		if (!config.animations && !grabc && c->configure_serial &&
-			client_is_rendered_on_mon(c, m)) {
+		if (!config.animations && !grabc && c->configure_serial) {
 			monitor_check_skip_frame_timeout(m);
 			goto skip;
 		}
