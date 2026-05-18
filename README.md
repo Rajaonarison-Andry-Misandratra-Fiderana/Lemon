@@ -4,17 +4,24 @@ A fast, lightweight Wayland tiling window manager / compositor.
 
 Lemon is a fork of [mangowm](https://github.com/DreamMaoMao/mangowm), itself built on
 [dwl](https://codeberg.org/dwl/dwl/), [wlroots](https://gitlab.freedesktop.org/wlroots/wlroots)
-and [scenefx](https://github.com/wlrfx/scenefx). The fork is tuned for **maximum responsiveness
-and minimum latency**: short build time, aggressive compile flags, optional
-jemalloc/LTO/`-march=native`, and a frame-clock cache that avoids one `clock_gettime` per
-animated frame.
+and [scenefx](https://github.com/wlrfx/scenefx). The fork is tuned for **maximum
+responsiveness, minimum latency and longest battery life**:
+
+- Single translation unit + LTO + opportunistic GCC IPA passes + optional PGO
+- PCRE2 with JIT-compiled patterns (window/layer rules)
+- Inlined frame-clock cache: one `clock_gettime` per frame instead of per animated client
+- `LEMON_HOT` / `LEMON_COLD` / `LEMON_LIKELY` / `LEMON_UNLIKELY` on render and input paths
+- Per-monitor render loop (clients only ticked on `c->mon`) and per-client wakeups
+- Battery-aware adaptive FPS: animations cap at ~60 Hz on battery, full refresh on AC
+- `setpriority(-10)` at startup for snappier input under load
+- Blur and drop shadows are **not** rendered, keeping GPU work to the strict minimum
 
 ## Features
 
 - **Tiling layouts** — scroller, master-stack, monocle, grid, deck, dwindle, horizontal, vertical. Layouts are per-tag.
 - **Tags, not workspaces** — multiple tags can be visible at the same time on a monitor.
-- **Animations** — open / close / move / tag switch, with per-target easing.
-- **Visual effects** — blur, drop shadows, rounded corners, opacity, powered by scenefx.
+- **Animations** — open / close / move / tag switch, with per-target easing. Battery-aware FPS cap.
+- **Visual effects** — rounded corners, opacity fades, animated borders. No blur, no drop shadow (intentional, keeps GPU idle).
 - **XWayland** — first-class support for legacy X11 clients.
 - **IPC** — `dwl-ipc-unstable-v2` server + `mmsg` CLI client for scripting and status bars.
 - **Hot-reload config** — single text file, reloads without restart.
@@ -56,10 +63,33 @@ sudo ninja -C build install
 | Option | Effect |
 |--------|--------|
 | `-Dnative=true` | `-march=native -mtune=native` |
-| `-Dlto=true` | `-flto=thin` link-time optimisation |
+| `-Dlto=true` | `-flto=thin` link-time optimisation (on by default) |
 | `-Djemalloc=true` | Link against jemalloc (faster allocator) |
+| `-Dpgo=generate` | First pass: instrument the build to collect profile data |
+| `-Dpgo=use` | Second pass: consume the collected profile data |
+| `-Dpgo_dir=PATH` | Override the directory where PGO profiles are written/read |
 | `-Dasan=true` | AddressSanitizer for debugging |
 | `--buildtype=debug` | `-O0 -g`, skips release flags |
+
+#### Profile-Guided Optimization (PGO)
+
+For the fastest possible build, do a two-pass PGO compile after exercising the
+compositor with a realistic workload:
+
+```bash
+# 1. Instrumented build
+meson setup build-pgo --buildtype=release -Dpgo=generate
+ninja -C build-pgo
+
+# 2. Run lemon for a few minutes doing typical tasks, then exit cleanly
+build-pgo/lemon
+
+# 3. Re-link with the collected profile
+meson configure build-pgo -Dpgo=use
+ninja -C build-pgo
+```
+
+`build-pgo/lemon` is now optimised against your actual usage patterns.
 
 ## First run
 
