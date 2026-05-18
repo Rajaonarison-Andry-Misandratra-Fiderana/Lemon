@@ -1069,7 +1069,7 @@ void init_fadeout_client(Client *c) {
 	wlr_scene_node_set_enabled(&fadeout_client->scene->node, true);
 	wl_list_insert(&fadeout_clients, &fadeout_client->fadeout_link);
 
-	request_fresh_all_monitors();
+	request_fresh_for_client(c);
 }
 
 /* Promote pending geometry to current and start the animation if one is queued. */
@@ -1088,7 +1088,7 @@ void client_commit(Client *c) {
 		c->animation.should_animate = false;
 	}
 
-	request_fresh_all_monitors();
+	request_fresh_for_client(c);
 }
 
 /* Decide whether the client should animate to its pending state and then commit it. */

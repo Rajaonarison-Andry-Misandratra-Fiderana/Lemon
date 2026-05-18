@@ -1100,6 +1100,9 @@ static struct wlr_xwayland *xwayland;
 static struct wl_event_source *sync_keymap;
 #endif
 
+void request_fresh_all_monitors(void);
+void request_fresh_for_client(Client *c);
+
 #include "animation/client.h"
 #include "animation/common.h"
 #include "animation/layer.h"

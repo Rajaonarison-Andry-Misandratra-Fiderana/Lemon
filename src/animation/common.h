@@ -210,3 +210,23 @@ void request_fresh_all_monitors(void) {
 		wlr_output_schedule_frame(m->wlr_output);
 	}
 }
+
+/* Schedule a frame only on monitors where the client is currently rendered. */
+void request_fresh_for_client(Client *c) {
+	if (!c || !c->scene_surface) {
+		request_fresh_all_monitors();
+		return;
+	}
+	Monitor *m = NULL;
+	bool any = false;
+	wl_list_for_each(m, &mons, link) {
+		if (!m->wlr_output->enabled)
+			continue;
+		if (m == c->mon || client_is_rendered_on_mon(c, m)) {
+			wlr_output_schedule_frame(m->wlr_output);
+			any = true;
+		}
+	}
+	if (!any && c->mon && c->mon->wlr_output->enabled)
+		wlr_output_schedule_frame(c->mon->wlr_output);
+}
