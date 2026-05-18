@@ -86,16 +86,48 @@ else
     '-fomit-frame-pointer',
     '-ffunction-sections',
     '-fdata-sections',
+    '-fmerge-all-constants',
+    '-fno-trapping-math',
+    '-fno-math-errno',
+    '-fno-signed-zeros',
     '-pipe',
     '-DNDEBUG',
   ]
+  # Optional extra GCC-only IPA flags; silently skipped if compiler rejects.
+  foreach extra : ['-fipa-pta', '-fdevirtualize-speculatively',
+                   '-fpredictive-commoning', '-ftree-vectorize',
+                   '-fno-stack-clash-protection']
+    if cc.has_argument(extra)
+      c_args += extra
+    endif
+  endforeach
   link_args += [
     '-Wl,-O1',
     '-Wl,--as-needed',
     '-Wl,--gc-sections',
+    '-Wl,--hash-style=gnu',
+    '-Wl,--build-id=sha1',
     '-Wl,-z,relro',
     '-Wl,-z,now',
+    '-Wl,-z,noseparate-code',
   ]
+endif
+
+# Profile-guided optimization
+pgo_mode = get_option('pgo')
+if pgo_mode != 'off' and buildtype != 'debug'
+  pgo_dir = get_option('pgo_dir')
+  if pgo_dir == ''
+    pgo_dir = meson.current_build_dir() / 'pgo-data'
+  endif
+  if pgo_mode == 'generate'
+    c_args += ['-fprofile-generate=' + pgo_dir, '-fprofile-update=atomic']
+    link_args += '-fprofile-generate=' + pgo_dir
+  else
+    c_args += ['-fprofile-use=' + pgo_dir, '-fprofile-correction',
+               '-Wno-error=missing-profile', '-Wno-missing-profile']
+    link_args += '-fprofile-use=' + pgo_dir
+  endif
 endif
 
 # Link-time optimization
