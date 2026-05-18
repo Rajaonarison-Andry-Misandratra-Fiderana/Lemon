@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <getopt.h>
 #include <libinput.h>
+#include <sys/resource.h>
 #include <limits.h>
 #include <linux/input-event-codes.h>
 #include <scenefx/render/fx_renderer/fx_renderer.h>
@@ -6869,6 +6870,11 @@ int32_t main(int32_t argc, char *argv[]) {
 
 	if (!getenv("XDG_RUNTIME_DIR"))
 		die("XDG_RUNTIME_DIR must be set");
+
+	/* Best-effort: lower nice value for snappier input handling. Fails silently
+	   when the process lacks CAP_SYS_NICE or RLIMIT_NICE permission. */
+	(void)setpriority(PRIO_PROCESS, 0, -10);
+
 	setup();
 	run(startup_cmd);
 	cleanup();
