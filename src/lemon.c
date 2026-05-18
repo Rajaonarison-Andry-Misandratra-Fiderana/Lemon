@@ -5204,6 +5204,17 @@ run(char *startup_cmd) {
 	run_exec();
 	run_exec_once();
 
+	/* Warm-start D-Bus activation of xdg-desktop-portal so that the first
+	   GTK/Qt app launched does not pay the portal cold-start latency. The
+	   call is fire-and-forget; if dbus-send is missing or the portal is
+	   absent, nothing breaks. */
+	Arg portal_warm = {.v = "dbus-send --session --print-reply=literal "
+	                        "--dest=org.freedesktop.portal.Desktop "
+	                        "/org/freedesktop/portal/desktop "
+	                        "org.freedesktop.DBus.Peer.Ping "
+	                        ">/dev/null 2>&1 || true"};
+	spawn_shell(&portal_warm);
+
 	wl_display_run(dpy);
 }
 
