@@ -1405,7 +1405,14 @@ void gpureset(struct wl_listener *listener, void *data) {
 
 	wlr_log(WLR_DEBUG, "gpu reset");
 
-	if (!(drw = fx_renderer_create(backend)))
+	const char *renderer_choice = getenv("LEMON_RENDERER");
+	if (renderer_choice && (strcmp(renderer_choice, "vulkan") == 0 ||
+	                        strcmp(renderer_choice, "gles2") == 0)) {
+		drw = wlr_renderer_autocreate(backend);
+	} else {
+		drw = fx_renderer_create(backend);
+	}
+	if (!drw)
 		die("couldn't recreate renderer");
 
 	if (!(alloc = wlr_allocator_autocreate(backend, drw)))
@@ -5790,7 +5797,38 @@ void setup(void) {
 	drag_icon = wlr_scene_tree_create(&scene->tree);
 	wlr_scene_node_place_below(&drag_icon->node, &layers[LyrBlock]->node);
 
-	if (!(drw = fx_renderer_create(backend)))
+	/* Renderer selection.
+	 *
+	 *   LEMON_RENDERER=fx       (default) scenefx GLES2 fx_renderer — full fx
+	 *                                     pipeline: corner radius, opacity,
+	 *                                     animation scaling, fadeout snapshots.
+	 *   LEMON_RENDERER=vulkan   Plain wlr_renderer with WLR_RENDERER=vulkan —
+	 *                           Lower CPU overhead, better multi-output
+	 *                           presentation timing on modern GPUs. scenefx
+	 *                           effects fall back to no-op stubs (corner
+	 *                           radius and per-buffer opacity will not render).
+	 *   LEMON_RENDERER=gles2    Plain wlr_renderer GLES2 backend — for
+	 *                           comparing fx_renderer overhead.
+	 */
+	const char *renderer_choice = getenv("LEMON_RENDERER");
+	if (renderer_choice && strcmp(renderer_choice, "vulkan") == 0) {
+		setenv("WLR_RENDERER", "vulkan", 1);
+		drw = wlr_renderer_autocreate(backend);
+		if (drw)
+			wlr_log(WLR_INFO,
+			        "Lemon: Vulkan renderer active (scenefx fx pipeline "
+			        "disabled — corner radius and opacity will not render).");
+	} else if (renderer_choice && strcmp(renderer_choice, "gles2") == 0) {
+		setenv("WLR_RENDERER", "gles2", 1);
+		drw = wlr_renderer_autocreate(backend);
+		if (drw)
+			wlr_log(WLR_INFO,
+			        "Lemon: plain GLES2 renderer active (no scenefx effects).");
+	} else {
+		drw = fx_renderer_create(backend);
+	}
+
+	if (!drw)
 		die("couldn't create renderer");
 
 	wl_signal_add(&drw->events.lost, &gpu_reset);

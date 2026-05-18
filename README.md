@@ -20,6 +20,7 @@ responsiveness, minimum latency and longest battery life**:
 - `posix_spawn` for keybind launches with `POSIX_SPAWN_SETSCHEDULER` resetting the child to SCHED_OTHER — apps never inherit realtime
 - Cursor theme + xdg-desktop-portal warmed up at startup so the first app launched is instant
 - Persistent `app_id → geometry` LRU cache: the first configure for a returning app already has the right size
+- Optional plain Vulkan / GLES2 renderer via `LEMON_RENDERER=vulkan|gles2` (default `fx` keeps scenefx animation effects)
 - Blur and drop shadows are **not** rendered, keeping GPU work to the strict minimum
 
 ## Features

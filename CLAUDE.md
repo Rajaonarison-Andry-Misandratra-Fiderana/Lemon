@@ -112,6 +112,11 @@ the compositor.
 - **Idle-notify throttling**: `wlr_idle_notifier_v1_notify_activity` is rate-limited to 4 Hz in `motionnotify` to avoid D-Bus flood under high-poll mice. Keep this throttle when extending; do not add a per-event notify.
 - **Surface geometry cache**: `src/common/surface_cache.h` maintains an LRU 256-entry `app_id → (w,h)` map persisted to `$XDG_CACHE_HOME/lemon/surfaces.db`. Used at xdg initial_commit to send the first configure at the right size and skip a resize round-trip.
 - **Render tiers**: each `Client` carries `render_tier` (FOCUS/VISIBLE/OCCLUDED/HIDDEN). Recomputed in `focusclient` and after `arrange`. `client_draw_frame` throttles OCCLUDED to 30 Hz and skips HIDDEN entirely.
+- **Renderer selection**: `LEMON_RENDERER` env var picks the backend.
+  - unset / `fx` (default) → scenefx `fx_renderer` GLES2 with full fx pipeline (animation scaling, corner radius, opacity fades). Required for the visual feel.
+  - `vulkan` → `wlr_renderer_autocreate` with `WLR_RENDERER=vulkan`. Lower CPU overhead and more predictable per-frame submission on modern GPUs, but scenefx effects fall back to no-op stubs (corner radius and per-buffer opacity stop rendering). Only useful for benchmarking / fullscreen-game sessions.
+  - `gles2` → same path as `vulkan` but forces the plain GLES2 wlroots renderer for A/B comparison.
+  scenefx 0.4 itself does **not** have a Vulkan backend; once upstream lands it, the default can move there.
 
 ## Common tasks
 
