@@ -4904,8 +4904,11 @@ LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 
 	if (config.allow_tearing && frame_allow_tearing) {
 		apply_tear_state(m);
-	} else if (LEMON_LIKELY(need_more_frames ||
-	           wlr_scene_output_needs_frame(m->scene_output))) {
+	} else {
+		/* Always commit. The lazy short-circuit broke wlr_screencopy_v1
+		   captures (grim, slurp overlay) because screencopy frame
+		   requests do not always mark the scene output as needs_frame
+		   on the vanilla wlroots scene. */
 		wlr_scene_output_commit(m->scene_output, NULL);
 	}
 
