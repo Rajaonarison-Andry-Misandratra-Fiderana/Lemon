@@ -19,8 +19,24 @@ build/lemon                          # run uninstalled (nested wayland session)
 ```
 
 Useful options live in `meson_options.txt`: `native`, `lto`, `jemalloc`, `asan`,
-`xwayland`. Release builds use `-O3 -fno-plt -fno-semantic-interposition
--fvisibility=hidden`; debug builds use `-O0 -g`.
+`xwayland`, `pgo`, `pgo_dir`. Release builds use `-O3 -fno-plt
+-fno-semantic-interposition -fvisibility=hidden -ffunction-sections
+-fdata-sections -fmerge-all-constants` plus opportunistic GCC IPA passes
+(`-fipa-pta`, `-fdevirtualize-speculatively`, `-fpredictive-commoning`,
+`-ftree-vectorize`) and `-fno-trapping-math -fno-math-errno
+-fno-signed-zeros` for the animation curve hot path. Linker uses
+`-Wl,--gc-sections -Wl,--hash-style=gnu -Wl,--build-id=sha1
+-Wl,-z,now,relro,noseparate-code`. Debug builds use `-O0 -g`.
+
+**Two-pass PGO** for the lowest-latency build:
+
+```bash
+meson setup build-pgo --buildtype=release -Dpgo=generate
+ninja -C build-pgo
+build-pgo/lemon                  # run normally for 5–10 minutes, exit
+meson configure build-pgo -Dpgo=use
+ninja -C build-pgo               # produces the PGO-optimized binary
+```
 
 Run from inside an existing Wayland or X session for development:
 
@@ -83,10 +99,14 @@ the compositor.
 - **Predicate macros**: `ISTILED`, `ISSCROLLTILED`, `VISIBLEON`, `ISFULLSCREEN`, `INSIDEMON` — defined at the top of `lemon.c`. Prefer these over re-deriving the checks.
 - **Geometry**: clients use `geom` (`struct wlr_box`) for current, `prev_geom` for pre-floating restore.
 - **Tags**: a tag set is a bitmask in `unsigned int`. `TAGMASK` = `(1 << LENGTH(tags)) - 1`.
-- **Frame clock**: inside a render frame, call `frame_now_ms()` instead of `get_now_in_ms()` to avoid a syscall per animated client. `frame_clock_begin/end` bracket the frame in `lemon.c`.
+- **Frame clock**: inside a render frame, call `frame_now_ms()` instead of `get_now_in_ms()` to avoid a syscall per animated client. `frame_clock_begin/end` bracket the frame in `lemon.c`. Both `frame_now_ms` and `frame_clock_now_timespec` are inlined in `util.h`.
 - **String helpers**: `string_printf` (allocates), `join_strings`, `join_strings_with_suffix` — in `util.c`.
 - **Allocator**: `ecalloc` (calloc-or-die) is the standard; raw `malloc` only when failure is recoverable.
-- **Regex**: `regex_match(pattern, str)` — PCRE2 with LRU cache (32 entries) in `util.c`.
+- **Regex**: `regex_match(pattern, str)` — PCRE2 with LRU cache (32 entries) **and JIT compile** in `util.c`. Matches pass `PCRE2_NO_UTF_CHECK`.
+- **Hot/cold attributes**: use `LEMON_HOT` / `LEMON_COLD` (defined in `util.h`) on per-frame render/input handlers and on cold error/setup paths; use `LEMON_LIKELY` / `LEMON_UNLIKELY` for the dominant-vs-rare branch hint.
+- **No blur, no shadow**: the compositor never enables backdrop blur or drop shadow scene nodes. Animations, opacity fades, corner radius and borders are all kept. Don't reintroduce `wlr_scene_optimized_blur`, `wlr_scene_shadow`, `config.blur*`, `config.shadows*`, `noblur`, or `noshadow` without explicit user request.
+- **Battery awareness**: global `on_battery` (polled every 10s from `/sys/class/power_supply/AC*/online`). When true, `rendermon` throttles animation frame scheduling to `BATTERY_ANIM_INTERVAL_MS` (16 ms ≈ 60 fps) via a per-monitor deferred timer.
+- **Per-monitor render loop**: `rendermon` iterates only clients whose `c->mon == m`. Animation start uses `request_fresh_for_client(c)` to wake only monitors where the client is currently rendered.
 
 ## Common tasks
 
