@@ -517,15 +517,24 @@ void client_set_drop_area(Client *c) {
 	if (!c || !c->mon)
 		return;
 
-	if (!c->enable_drop_area_draw && !c->droparea->node.enabled) {
+	/* Fast path: dropping disabled and rect never allocated. */
+	if (!c->enable_drop_area_draw && !c->droparea)
 		return;
-	}
 
-	if (!c->enable_drop_area_draw && c->droparea->node.enabled) {
+	if (!c->enable_drop_area_draw && c->droparea && c->droparea->node.enabled) {
 		wlr_scene_node_lower_to_bottom(&c->droparea->node);
 		wlr_scene_node_set_enabled(&c->droparea->node, false);
 		return;
-	} else if (c->enable_drop_area_draw && !c->droparea->node.enabled) {
+	}
+
+	if (c->enable_drop_area_draw && !c->droparea) {
+		c->droparea = wlr_scene_rect_create(c->scene, 0, 0, config.dropcolor);
+		wlr_scene_node_lower_to_bottom(&c->droparea->node);
+		wlr_scene_node_set_position(&c->droparea->node, 0, 0);
+	}
+
+	if (c->enable_drop_area_draw && c->droparea &&
+	    !c->droparea->node.enabled) {
 		wlr_scene_node_raise_to_top(&c->droparea->node);
 		wlr_scene_node_set_enabled(&c->droparea->node, true);
 		first_draw = true;

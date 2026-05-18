@@ -4311,10 +4311,9 @@ mapnotify(struct wl_listener *listener, void *data) {
 		wlr_scene_node_set_enabled(&c->splitindicator[i]->node, false);
 	}
 
-	c->droparea = wlr_scene_rect_create(c->scene, 0, 0, config.dropcolor);
-	wlr_scene_node_lower_to_bottom(&c->droparea->node);
-	wlr_scene_node_set_position(&c->droparea->node, 0, 0);
-	wlr_scene_node_set_enabled(&c->droparea->node, false);
+	/* droparea scene rect is allocated lazily on first drag (rare event).
+	   Saves one wlr_scene_rect + damage tracking state per client. */
+	c->droparea = NULL;
 
 	c->border = wlr_scene_rect_create(
 		c->scene, 0, 0, c->isurgent ? config.urgentcolor : config.bordercolor);
