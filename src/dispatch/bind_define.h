@@ -1391,17 +1391,21 @@ int32_t togglefloating(const Arg *arg) {
 	if (!selmon)
 		return 0;
 
-	Client *sel = focustop(selmon);
-
-	if (selmon && selmon->isoverview)
+	if (selmon->isoverview)
 		return 0;
+
+	/* Prefer the explicitly-focused client. focustop walks the focus stack
+	   and may return a different visible client when the active window has
+	   transient state (e.g. minimized, pending kill, scratchpad). */
+	Client *sel = selmon->sel;
+	if (!sel || sel->iskilling || sel->isunglobal || !VISIBLEON(sel, selmon))
+		sel = focustop(selmon);
 
 	if (!sel)
 		return 0;
 
-	bool isfloating = sel->isfloating;
-
-	if ((sel->isfullscreen || sel->ismaximizescreen)) {
+	bool isfloating;
+	if (sel->isfullscreen || sel->ismaximizescreen) {
 		isfloating = 1;
 	} else {
 		isfloating = !sel->isfloating;
