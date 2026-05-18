@@ -13,9 +13,13 @@ responsiveness, minimum latency and longest battery life**:
 - `LEMON_HOT` / `LEMON_COLD` / `LEMON_LIKELY` / `LEMON_UNLIKELY` on render and input paths
 - Per-monitor render loop (clients only ticked on `c->mon`) and per-client wakeups
 - Battery-aware adaptive FPS: animations cap at ~60 Hz on battery, full refresh on AC
-- `setpriority(-10)` at startup for snappier input under load
-- `posix_spawn` for keybind launches: no fork() page-table COW of the compositor address space
+- `SCHED_RR` realtime + `mlockall` at startup (falls back to `nice -10` without CAP_SYS_NICE) — input never gets preempted
+- Idle-notify D-Bus signal rate-limited to 4 Hz during cursor motion
+- Per-monitor render loop, per-client wakeups, scene-output skip when no damage
+- 4-tier render priority: FOCUS / VISIBLE / OCCLUDED (30 Hz) / HIDDEN (skipped)
+- `posix_spawn` for keybind launches with `POSIX_SPAWN_SETSCHEDULER` resetting the child to SCHED_OTHER — apps never inherit realtime
 - Cursor theme + xdg-desktop-portal warmed up at startup so the first app launched is instant
+- Persistent `app_id → geometry` LRU cache: the first configure for a returning app already has the right size
 - Blur and drop shadows are **not** rendered, keeping GPU work to the strict minimum
 
 ## Features
