@@ -94,6 +94,7 @@
 #include <xcb/xcb_icccm.h>
 #endif
 #include "common/util.h"
+#include "common/surface_cache.h"
 
 #define MAX(A, B) ((A) > (B) ? (A) : (B))
 #define MIN(A, B) ((A) < (B) ? (A) : (B))
@@ -2485,6 +2486,7 @@ void cleanuplisteners(void) {
 
 /* Tear down xwayland, clients, child process, cursor, backend, and the scene graph. */
 void cleanup(void) {
+	surface_cache_save();
 	cleanuplisteners();
 #ifdef XWAYLAND
 	wlr_xwayland_destroy(xwayland);
@@ -2726,7 +2728,7 @@ void commitnotify(struct wl_listener *listener, void *data) {
 	struct wlr_box *new_geo;
 
 	if (c->surface.xdg->initial_commit) {
-		
+
 		init_client_properties(c);
 		applyrules(c);
 		if (c->mon) {
@@ -2734,6 +2736,18 @@ void commitnotify(struct wl_listener *listener, void *data) {
 		}
 		setmon(c, NULL, 0,
 			   true);
+
+		/* If the client did not pre-size itself, seed the initial configure
+		   with the last known geometry for this app_id so the very first
+		   commit lands at the right size (no extra resize round-trip). */
+		const char *cached_app_id = client_get_appid(c);
+		int32_t cached_w = 0, cached_h = 0;
+		if (c->surface.xdg->toplevel->pending.width == 0 &&
+		    c->surface.xdg->toplevel->pending.height == 0 &&
+		    surface_cache_lookup(cached_app_id, &cached_w, &cached_h)) {
+			wlr_xdg_toplevel_set_size(c->surface.xdg->toplevel, cached_w,
+			                          cached_h);
+		}
 
 		uint32_t serial = wlr_xdg_surface_schedule_configure(c->surface.xdg);
 		if (serial > 0) {
@@ -5698,6 +5712,7 @@ void setup(void) {
 		config.log_level = WLR_DEBUG;
 	}
 	init_baked_points();
+	surface_cache_load();
 
 	int32_t drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE};
 	struct sigaction sa = {.sa_flags = SA_RESTART, .sa_handler = handlesig};
@@ -6133,11 +6148,19 @@ void unmaplayersurfacenotify(struct wl_listener *listener, void *data) {
 }
 
 void unmapnotify(struct wl_listener *listener, void *data) {
-	
+
 	Client *c = wl_container_of(listener, c, unmap);
 	Monitor *m = NULL;
 	Client *nextfocus = NULL;
 	c->iskilling = 1;
+
+	/* Persist last-known size for this app_id before the client tears down,
+	   so the next launch can configure straight to the right geometry. */
+	if (!client_is_x11(c) && c->geom.width > 0 && c->geom.height > 0) {
+		surface_cache_store(client_get_appid(c),
+		                    c->geom.width - 2 * (int32_t)c->bw,
+		                    c->geom.height - 2 * (int32_t)c->bw);
+	}
 	struct ScrollerStackNode *target_node =
 		c->mon ? find_scroller_node(
 					 c->mon->pertag->scroller_state[c->mon->pertag->curtag], c)
