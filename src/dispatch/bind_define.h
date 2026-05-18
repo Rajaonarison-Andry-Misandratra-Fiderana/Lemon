@@ -959,59 +959,82 @@ int32_t centerwin(const Arg *arg) {
 	return 0;
 }
 
-/* Action: fork a child and execute arg->v through sh -c (then bash -c) for shell-feature command lines. */
+extern char **environ;
+
+/* Build a posix_spawn file_actions object that redirects stdout to stderr and detaches from the
+   controlling terminal via setsid (POSIX_SPAWN_SETSID, glibc >= 2.26). Returns 0 on success. */
+static int spawn_make_actions(posix_spawn_file_actions_t *fa,
+                              posix_spawnattr_t *attr) {
+	if (posix_spawn_file_actions_init(fa) != 0)
+		return -1;
+	if (posix_spawnattr_init(attr) != 0) {
+		posix_spawn_file_actions_destroy(fa);
+		return -1;
+	}
+	posix_spawn_file_actions_adddup2(fa, STDERR_FILENO, STDOUT_FILENO);
+#ifdef POSIX_SPAWN_SETSID
+	posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSID);
+#endif
+	return 0;
+}
+
+/* Action: launch arg->v through sh -c using posix_spawn (clone+vfork path, no fork() page-table copy).
+   Falls back to bash if /bin/sh exec fails. */
 int32_t spawn_shell(const Arg *arg) {
 	if (!arg->v)
 		return 0;
 
-	if (fork() == 0) {
+	posix_spawn_file_actions_t fa;
+	posix_spawnattr_t attr;
+	if (spawn_make_actions(&fa, &attr) != 0)
+		return 0;
 
-		signal(SIGSEGV, SIG_IGN);
-		signal(SIGABRT, SIG_IGN);
-		signal(SIGILL, SIG_IGN);
-
-		dup2(STDERR_FILENO, STDOUT_FILENO);
-		setsid();
-
-		execlp("sh", "sh", "-c", arg->v, (char *)NULL);
-
-		execlp("bash", "bash", "-c", arg->v, (char *)NULL);
-
-		wlr_log(WLR_DEBUG,
-				"lemon: failed to execute command '%s' with shell: %s\n",
-				arg->v, strerror(errno));
-		_exit(EXIT_FAILURE);
+	pid_t pid;
+	char *sh_argv[] = {(char *)"sh", (char *)"-c", (char *)arg->v, NULL};
+	int rc = posix_spawn(&pid, "/bin/sh", &fa, &attr, sh_argv, environ);
+	if (rc != 0) {
+		char *bash_argv[] = {(char *)"bash", (char *)"-c", (char *)arg->v, NULL};
+		rc = posix_spawn(&pid, "/bin/bash", &fa, &attr, bash_argv, environ);
 	}
+	if (rc != 0) {
+		wlr_log(WLR_DEBUG,
+		        "lemon: posix_spawn failed for '%s': %s\n",
+		        arg->v, strerror(rc));
+	}
+
+	posix_spawn_file_actions_destroy(&fa);
+	posix_spawnattr_destroy(&attr);
 	return 0;
 }
 
-/* Action: fork a child and exec arg->v via wordexp+execvp (no shell interpretation beyond word expansion). */
+/* Action: launch arg->v via wordexp+posix_spawnp; uses PATH lookup. Avoids fork()'s COW cost. */
 int32_t spawn(const Arg *arg) {
 	if (!arg->v)
 		return 0;
 
-	if (fork() == 0) {
-
-		signal(SIGSEGV, SIG_IGN);
-		signal(SIGABRT, SIG_IGN);
-		signal(SIGILL, SIG_IGN);
-
-		dup2(STDERR_FILENO, STDOUT_FILENO);
-		setsid();
-
-		wordexp_t p;
-		if (wordexp(arg->v, &p, 0) != 0) {
-			wlr_log(WLR_DEBUG, "lemon: wordexp failed for '%s'\n", arg->v);
-			_exit(EXIT_FAILURE);
-		}
-
-		execvp(p.we_wordv[0], p.we_wordv);
-
-		wlr_log(WLR_DEBUG, "lemon: execvp '%s' failed: %s\n", p.we_wordv[0],
-				strerror(errno));
-		wordfree(&p);
-		_exit(EXIT_FAILURE);
+	wordexp_t p;
+	if (wordexp(arg->v, &p, 0) != 0) {
+		wlr_log(WLR_DEBUG, "lemon: wordexp failed for '%s'\n", arg->v);
+		return 0;
 	}
+
+	posix_spawn_file_actions_t fa;
+	posix_spawnattr_t attr;
+	if (spawn_make_actions(&fa, &attr) != 0) {
+		wordfree(&p);
+		return 0;
+	}
+
+	pid_t pid;
+	int rc = posix_spawnp(&pid, p.we_wordv[0], &fa, &attr, p.we_wordv, environ);
+	if (rc != 0) {
+		wlr_log(WLR_DEBUG, "lemon: posix_spawnp '%s' failed: %s\n",
+		        p.we_wordv[0], strerror(rc));
+	}
+
+	posix_spawn_file_actions_destroy(&fa);
+	posix_spawnattr_destroy(&attr);
+	wordfree(&p);
 	return 0;
 }
 
