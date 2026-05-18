@@ -4849,7 +4849,8 @@ LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 
 	if (config.allow_tearing && frame_allow_tearing) {
 		apply_tear_state(m);
-	} else {
+	} else if (LEMON_LIKELY(need_more_frames ||
+	           wlr_scene_output_needs_frame(m->scene_output))) {
 		wlr_scene_output_commit(m->scene_output, NULL);
 	}
 
