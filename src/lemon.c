@@ -350,7 +350,7 @@ struct Client {
 	struct wlr_scene_tree *scene;
 	struct wlr_scene_rect *border;
 	struct wlr_scene_rect *droparea;
-	struct wlr_scene_rect *splitindicator[4];
+	struct wlr_scene_rect *splitindicator[2];
 	struct wlr_scene_tree *scene_surface;
 	struct wl_list link;
 	struct wl_list flink;
