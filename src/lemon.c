@@ -5823,7 +5823,11 @@ void setup(void) {
 
 	cursor_mgr =
 		wlr_xcursor_manager_create(config.cursor_theme, config.cursor_size);
-	
+	/* Pre-decode the cursor theme at the two scales most clients use, so the
+	   first cursor change after a launch does not stall on disk IO. */
+	wlr_xcursor_manager_load(cursor_mgr, 1);
+	wlr_xcursor_manager_load(cursor_mgr, 2);
+
 	wl_signal_add(&cursor->events.motion, &cursor_motion);
 	wl_signal_add(&cursor->events.motion_absolute, &cursor_motion_absolute);
 	wl_signal_add(&cursor->events.button, &cursor_button);
