@@ -147,53 +147,6 @@ void set_layer_dir_animaiton(LayerSurface *l, struct wlr_box *geo) {
 	}
 }
 
-/* Size, position and clip the drop shadow under a layer surface for the current frame. */
-void layer_draw_shadow(LayerSurface *l) {
-
-	if (!l->mapped || !l->shadow)
-		return;
-
-	if (!config.shadows || !config.layer_shadows || l->noshadow) {
-		wlr_scene_shadow_set_size(l->shadow, 0, 0);
-		return;
-	}
-
-	int32_t width, height;
-	layer_actual_size(l, &width, &height);
-
-	int32_t delta = config.shadows_size;
-
-	struct wlr_box layer_box = {
-		.x = 0,
-		.y = 0,
-		.width = width,
-		.height = height,
-	};
-
-	struct wlr_box shadow_box = {
-		.x = config.shadows_position_x,
-		.y = config.shadows_position_y,
-		.width = width + 2 * delta,
-		.height = height + 2 * delta,
-	};
-
-	struct wlr_box intersection_box;
-	wlr_box_intersection(&intersection_box, &layer_box, &shadow_box);
-	intersection_box.x -= config.shadows_position_x;
-	intersection_box.y -= config.shadows_position_y;
-
-	struct clipped_region clipped_region = {
-		.area = intersection_box,
-		.corner_radius = config.border_radius,
-		.corners = config.border_radius_location_default,
-	};
-
-	wlr_scene_node_set_position(&l->shadow->node, shadow_box.x, shadow_box.y);
-
-	wlr_scene_shadow_set_size(l->shadow, shadow_box.width, shadow_box.height);
-	wlr_scene_shadow_set_clipped_region(l->shadow, clipped_region);
-}
-
 /* Per-buffer callback that scales layer surface buffers proportionally during zoom animations. */
 void layer_scene_buffer_apply_effect(struct wlr_scene_buffer *buffer,
 									 int32_t sx, int32_t sy, void *data) {
@@ -541,9 +494,7 @@ LEMON_HOT bool layer_draw_frame(LayerSurface *l) {
 	if (config.animations && config.layer_animations && l->animation.running &&
 		!l->noanim) {
 		layer_animation_next_tick(l);
-		layer_draw_shadow(l);
 	} else {
-		layer_draw_shadow(l);
 		l->need_output_flush = false;
 	}
 	return true;

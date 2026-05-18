@@ -259,104 +259,6 @@ void buffer_set_effect(Client *c, BufferData data) {
 								   scene_buffer_apply_effect, &data);
 }
 
-/* Position, size and clip the client's drop shadow to fit the current animation frame. */
-void client_draw_shadow(Client *c) {
-
-	if (c->iskilling || !client_surface(c)->mapped || c->isnoshadow)
-		return;
-
-	if (!config.shadows || (!c->isfloating && config.shadow_only_floating)) {
-		if (c->shadow->node.enabled)
-			wlr_scene_node_set_enabled(&c->shadow->node, false);
-		return;
-	} else {
-		if (c->scene_surface->node.enabled && !c->shadow->node.enabled)
-			wlr_scene_node_set_enabled(&c->shadow->node, true);
-	}
-
-	bool hit_no_border = check_hit_no_border(c);
-	enum corner_location current_corner_location =
-		c->isfullscreen || (config.no_radius_when_single && c->mon &&
-							c->mon->visible_tiling_clients == 1)
-			? CORNER_LOCATION_NONE
-			: CORNER_LOCATION_ALL;
-
-	int32_t bwoffset = c->bw != 0 && hit_no_border ? (int32_t)c->bw : 0;
-
-	int32_t width, height;
-	client_actual_size(c, &width, &height);
-
-	int32_t delta = config.shadows_size + (int32_t)c->bw - bwoffset;
-
-	struct wlr_box client_box = {
-		.x = bwoffset,
-		.y = bwoffset,
-		.width = width + 2 * (int32_t)c->bw - 2 * bwoffset,
-		.height = height + 2 * (int32_t)c->bw - 2 * bwoffset,
-	};
-
-	struct wlr_box shadow_box = {
-		.x = config.shadows_position_x + bwoffset,
-		.y = config.shadows_position_y + bwoffset,
-		.width = width + 2 * delta,
-		.height = height + 2 * delta,
-	};
-
-	struct wlr_box intersection_box;
-	wlr_box_intersection(&intersection_box, &client_box, &shadow_box);
-	intersection_box.x -= config.shadows_position_x + bwoffset;
-	intersection_box.y -= config.shadows_position_y + bwoffset;
-
-	struct clipped_region clipped_region = {
-		.area = intersection_box,
-		.corner_radius = config.border_radius,
-		.corners = current_corner_location,
-	};
-
-	struct wlr_box absolute_shadow_box = {
-		.x = shadow_box.x + c->animation.current.x,
-		.y = shadow_box.y + c->animation.current.y,
-		.width = shadow_box.width,
-		.height = shadow_box.height,
-	};
-
-	int32_t right_offset, bottom_offset, left_offset, top_offset;
-
-	if (c == grabc) {
-		right_offset = 0;
-		bottom_offset = 0;
-		left_offset = 0;
-		top_offset = 0;
-	} else {
-		right_offset =
-			GEZERO(absolute_shadow_box.x + absolute_shadow_box.width -
-				   c->mon->m.x - c->mon->m.width);
-		bottom_offset =
-			GEZERO(absolute_shadow_box.y + absolute_shadow_box.height -
-				   c->mon->m.y - c->mon->m.height);
-
-		left_offset = GEZERO(c->mon->m.x - absolute_shadow_box.x);
-		top_offset = GEZERO(c->mon->m.y - absolute_shadow_box.y);
-	}
-
-	left_offset = MIN(left_offset, shadow_box.width);
-	right_offset = MIN(right_offset, shadow_box.width);
-	top_offset = MIN(top_offset, shadow_box.height);
-	bottom_offset = MIN(bottom_offset, shadow_box.height);
-
-	wlr_scene_node_set_position(&c->shadow->node, shadow_box.x + left_offset,
-								shadow_box.y + top_offset);
-
-	wlr_scene_shadow_set_size(
-		c->shadow, GEZERO(shadow_box.width - left_offset - right_offset),
-		GEZERO(shadow_box.height - top_offset - bottom_offset));
-
-	clipped_region.area.x = clipped_region.area.x - left_offset;
-	clipped_region.area.y = clipped_region.area.y - top_offset;
-
-	wlr_scene_shadow_set_clipped_region(c->shadow, clipped_region);
-}
-
 /* Show or hide the dwindle split-direction indicator bars for the client. */
 void apply_split_border(Client *c, bool hit_no_border) {
 
@@ -790,7 +692,6 @@ LEMON_HOT void client_apply_clip(Client *c, float factor) {
 		offset = clip_to_hide(c, &clip_box);
 
 		apply_border(c);
-		client_draw_shadow(c);
 
 		if (clip_box.width <= 0 || clip_box.height <= 0) {
 			return;
@@ -823,7 +724,6 @@ LEMON_HOT void client_apply_clip(Client *c, float factor) {
 	offset = clip_to_hide(c, &clip_box);
 
 	apply_border(c);
-	client_draw_shadow(c);
 
 	if (clip_box.width <= 0 || clip_box.height <= 0) {
 		should_render_client_surface = false;
@@ -1224,7 +1124,6 @@ void resize(Client *c, struct wlr_box geo, int32_t interact) {
 			c->geom;
 		wlr_scene_node_set_position(&c->scene->node, c->geom.x, c->geom.y);
 
-		client_draw_shadow(c);
 		apply_border(c);
 		client_get_clip(c, &clip);
 		wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip);

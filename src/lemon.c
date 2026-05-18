@@ -153,7 +153,6 @@ enum { XDGShell, LayerShell, X11 };
 enum { AxisUp, AxisDown, AxisLeft, AxisRight };
 enum {
 	LyrBg,
-	LyrBlur,
 	LyrBottom,
 	LyrTile,
 	LyrTop,
@@ -343,7 +342,6 @@ struct Client {
 	struct wlr_scene_rect *border;
 	struct wlr_scene_rect *droparea;
 	struct wlr_scene_rect *splitindicator[4];
-	struct wlr_scene_shadow *shadow;
 	struct wlr_scene_tree *scene_surface;
 	struct wl_list link;
 	struct wl_list flink;
@@ -402,7 +400,6 @@ struct Client {
 	int32_t is_scratchpad_show;
 	int32_t isglobal;
 	int32_t isnoborder;
-	int32_t isnoshadow;
 	int32_t isnoradius;
 	int32_t isnoanimation;
 	int32_t isopensilent;
@@ -442,7 +439,6 @@ struct Client {
 	float focused_opacity;
 	float unfocused_opacity;
 	char oldmonname[128];
-	int32_t noblur;
 	double master_mfact_per, master_inner_per, stack_inner_per;
 	double old_master_mfact_per, old_master_inner_per, old_stack_inner_per;
 	double old_scroller_pproportion;
@@ -506,7 +502,6 @@ typedef struct {
 	Monitor *mon;
 	struct wlr_scene_tree *scene;
 	struct wlr_scene_tree *popups;
-	struct wlr_scene_shadow *shadow;
 	struct wlr_scene_layer_surface_v1 *scene_layer;
 	struct wl_list link;
 	struct wl_list fadeout_link;
@@ -520,10 +515,7 @@ typedef struct {
 
 	struct dwl_animation animation;
 	bool dirty;
-	bool blur_state_applied;
-	int32_t noblur;
 	int32_t noanim;
-	int32_t noshadow;
 	char *animation_type_open;
 	char *animation_type_close;
 	bool need_output_flush;
@@ -581,7 +573,6 @@ struct Monitor {
 	uint32_t visible_clients;
 	uint32_t visible_tiling_clients;
 	uint32_t visible_scroll_tiling_clients;
-	struct wlr_scene_optimized_blur *blur;
 	char last_surface_ws_name[256];
 	struct wlr_ext_workspace_group_handle_v1 *ext_group;
 	bool iscleanuping;
@@ -1511,7 +1502,6 @@ static void apply_rule_properties(Client *c, const ConfigWinRule *r) {
 	APPLY_INT_PROP(c, r, isfullscreen);
 	APPLY_INT_PROP(c, r, isfakefullscreen);
 	APPLY_INT_PROP(c, r, isnoborder);
-	APPLY_INT_PROP(c, r, isnoshadow);
 	APPLY_INT_PROP(c, r, isnoradius);
 	APPLY_INT_PROP(c, r, isnoanimation);
 	APPLY_INT_PROP(c, r, isopensilent);
@@ -1524,7 +1514,6 @@ static void apply_rule_properties(Client *c, const ConfigWinRule *r) {
 	APPLY_INT_PROP(c, r, isnosizehint);
 	APPLY_INT_PROP(c, r, indleinhibit_when_focus);
 	APPLY_INT_PROP(c, r, isunglobal);
-	APPLY_INT_PROP(c, r, noblur);
 	APPLY_INT_PROP(c, r, allow_shortcuts_inhibit);
 
 	APPLY_FLOAT_PROP(c, r, scroller_proportion);
@@ -2547,10 +2536,6 @@ void cleanupmon(struct wl_listener *listener, void *data) {
 	wlr_scene_output_destroy(m->scene_output);
 
 	closemon(m);
-	if (m->blur) {
-		wlr_scene_node_destroy(&m->blur->node);
-		m->blur = NULL;
-	}
 	if (m->skip_frame_timeout) {
 		monitor_stop_skip_frame_timer(m);
 		wl_event_source_remove(m->skip_frame_timeout);
@@ -2612,37 +2597,6 @@ void closemon(Monitor *m) {
 	}
 }
 
-/* Per-buffer callback: enable backdrop blur on layer-surface scene buffers. */
-static void iter_layer_scene_buffers(struct wlr_scene_buffer *buffer,
-									 int32_t sx, int32_t sy, void *user_data) {
-	struct wlr_scene_surface *scene_surface =
-		wlr_scene_surface_try_from_buffer(buffer);
-	if (!scene_surface) {
-		return;
-	}
-
-	wlr_scene_buffer_set_backdrop_blur(buffer, true);
-	wlr_scene_buffer_set_backdrop_blur_ignore_transparent(buffer, true);
-	if (config.blur_optimized) {
-		wlr_scene_buffer_set_backdrop_blur_optimized(buffer, true);
-	} else {
-		wlr_scene_buffer_set_backdrop_blur_optimized(buffer, false);
-	}
-}
-
-/* Mark the monitor's optimized blur dirty when a background layer surface changes. */
-void layer_flush_blur_background(LayerSurface *l) {
-	if (!config.blur)
-		return;
-
-	if (l->layer_surface->current.layer ==
-		ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
-		if (l->mon) {
-			wlr_scene_optimized_blur_mark_dirty(l->mon->blur);
-		}
-	}
-}
-
 /* Listener: layer-surface mapped — apply layer rules, create shadow, kick off open animation. */
 void maplayersurfacenotify(struct wl_listener *listener, void *data) {
 	LayerSurface *l = wl_container_of(listener, l, map);
@@ -2663,8 +2617,6 @@ void maplayersurfacenotify(struct wl_listener *listener, void *data) {
 
 	l->noanim = 0;
 	l->dirty = false;
-	l->noblur = 0;
-	l->shadow = NULL;
 	l->need_output_flush = true;
 
 	for (ji = 0; ji < config.layer_rules_count; ji++) {
@@ -2674,22 +2626,10 @@ void maplayersurfacenotify(struct wl_listener *listener, void *data) {
 						l->layer_surface->namespace)) {
 
 			r = &config.layer_rules[ji];
-			APPLY_INT_PROP(l, r, noblur);
 			APPLY_INT_PROP(l, r, noanim);
-			APPLY_INT_PROP(l, r, noshadow);
 			APPLY_STRING_PROP(l, r, animation_type_open);
 			APPLY_STRING_PROP(l, r, animation_type_close);
 		}
-	}
-
-	if (layer_surface->current.exclusive_zone == 0 &&
-		layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM &&
-		layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND) {
-		l->shadow =
-			wlr_scene_shadow_create(l->scene, 0, 0, config.border_radius,
-									config.shadows_blur, config.shadowscolor);
-		wlr_scene_node_lower_to_bottom(&l->shadow->node);
-		wlr_scene_node_set_enabled(&l->shadow->node, true);
 	}
 
 	if (config.animations && config.layer_animations && !l->noanim) {
@@ -2751,22 +2691,6 @@ void commitlayersurfacenotify(struct wl_listener *listener, void *data) {
 		l->need_output_flush = true;
 		layer_set_pending_state(l);
 	}
-
-	if (config.blur && config.blur_layer) {
-
-		if (!l->noblur &&
-			layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM &&
-			layer_surface->current.layer !=
-				ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND &&
-			!l->blur_state_applied) {
-
-			wlr_scene_node_for_each_buffer(&l->scene->node,
-										   iter_layer_scene_buffers, l);
-			l->blur_state_applied = true;
-		}
-	}
-
-	layer_flush_blur_background(l);
 
 	if (layer_surface->current.committed == 0 &&
 		l->mapped == layer_surface->surface->mapped)
@@ -3338,12 +3262,6 @@ void createmon(struct wl_listener *listener, void *data) {
 	else
 		wlr_output_layout_add(output_layout, wlr_output, m->m.x, m->m.y);
 
-	if (config.blur) {
-		m->blur = wlr_scene_optimized_blur_create(&scene->tree, 0, 0);
-		wlr_scene_node_set_position(&m->blur->node, m->m.x, m->m.y);
-		wlr_scene_node_reparent(&m->blur->node, layers[LyrBlur]);
-		wlr_scene_optimized_blur_set_size(m->blur, m->m.width, m->m.height);
-	}
 	m->ext_group = wlr_ext_workspace_group_handle_v1_create(
 		ext_manager, EXT_WORKSPACE_ENABLE_CAPS);
 	wlr_ext_workspace_group_handle_v1_output_enter(m->ext_group, m->wlr_output);
@@ -4195,35 +4113,6 @@ void locksession(struct wl_listener *listener, void *data) {
 	wlr_session_lock_v1_send_locked(session_lock);
 }
 
-static void iter_xdg_scene_buffers(struct wlr_scene_buffer *buffer, int32_t sx,
-								   int32_t sy, void *user_data) {
-	Client *c = user_data;
-
-	struct wlr_scene_surface *scene_surface =
-		wlr_scene_surface_try_from_buffer(buffer);
-	if (!scene_surface) {
-		return;
-	}
-
-	struct wlr_surface *surface = scene_surface->surface;
-	
-	if (wlr_subsurface_try_from_wlr_surface(surface) != NULL)
-		return;
-
-	if (config.blur && c && !c->noblur && !c->isfullscreen &&
-		!c->ismaximizescreen) {
-		wlr_scene_buffer_set_backdrop_blur(buffer, true);
-		wlr_scene_buffer_set_backdrop_blur_ignore_transparent(buffer, false);
-		if (config.blur_optimized) {
-			wlr_scene_buffer_set_backdrop_blur_optimized(buffer, true);
-		} else {
-			wlr_scene_buffer_set_backdrop_blur_optimized(buffer, false);
-		}
-	} else {
-		wlr_scene_buffer_set_backdrop_blur(buffer, false);
-	}
-}
-
 void init_client_properties(Client *c) {
 	c->grid_col_per = 1.0f;
 	c->grid_row_per = 1.0f;
@@ -4237,7 +4126,6 @@ void init_client_properties(Client *c) {
 	c->istagsilent = 0;
 	c->noswallow = 0;
 	c->isterm = 0;
-	c->noblur = 0;
 	c->tearing_hint = 0;
 	c->overview_isfullscreenbak = 0;
 	c->overview_ismaximizescreenbak = 0;
@@ -4279,7 +4167,6 @@ void init_client_properties(Client *c) {
 	c->isnoborder = 0;
 	c->isnosizehint = 0;
 	c->isnoradius = 0;
-	c->isnoshadow = 0;
 	c->ignore_maximize = 1;
 	c->ignore_minimize = 1;
 	c->iscustomsize = 0;
@@ -4386,13 +4273,6 @@ mapnotify(struct wl_listener *listener, void *data) {
 									 config.border_radius_location_default);
 	wlr_scene_node_set_enabled(&c->border->node, true);
 
-	c->shadow =
-		wlr_scene_shadow_create(c->scene, 0, 0, config.border_radius,
-								config.shadows_blur, config.shadowscolor);
-
-	wlr_scene_node_lower_to_bottom(&c->shadow->node);
-	wlr_scene_node_set_enabled(&c->shadow->node, true);
-
 	if (config.new_is_master && selmon && !is_scroller_layout(selmon))
 		
 		wl_list_insert(&clients, &c->link);
@@ -4422,9 +4302,6 @@ mapnotify(struct wl_listener *listener, void *data) {
 		client_set_tiled(c, WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT |
 								WLR_EDGE_RIGHT);
 	}
-
-	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
-								   iter_xdg_scene_buffers, c);
 
 	setborder_color(c);
 
@@ -5562,9 +5439,6 @@ void setfullscreen(Client *c, int32_t fullscreen)
 	c->isfullscreen = fullscreen;
 	if (old_fullscreen_state != fullscreen) {
 		c->focus_opacity_dirty = true;
-		if (c->scene_surface)
-			wlr_scene_node_for_each_buffer(&c->scene_surface->node,
-										   iter_xdg_scene_buffers, c);
 	}
 
 	client_set_fullscreen(c, fullscreen);
@@ -6007,11 +5881,6 @@ void setup(void) {
 	wl_signal_add(&output_mgr->events.apply, &output_mgr_apply);
 	wl_signal_add(&output_mgr->events.test, &output_mgr_test);
 
-	wlr_scene_set_blur_data(
-		scene, config.blur_params.num_passes, config.blur_params.radius,
-		config.blur_params.noise, config.blur_params.brightness,
-		config.blur_params.contrast, config.blur_params.saturation);
-
 	input_method_manager = wlr_input_method_manager_v2_create(dpy);
 	text_input_manager = wlr_text_input_manager_v3_create(dpy);
 
@@ -6243,9 +6112,6 @@ void unmaplayersurfacenotify(struct wl_listener *listener, void *data) {
 	reset_exclusive_layers_focus(l->mon);
 
 	motionnotify(0, NULL, 0, 0, 0, 0);
-	layer_flush_blur_background(l);
-	wlr_scene_node_destroy(&l->shadow->node);
-	l->shadow = NULL;
 	l->being_unmapped = false;
 }
 
@@ -6423,11 +6289,6 @@ void updatemons(struct wl_listener *listener, void *data) {
 		}
 
 		wlr_scene_output_set_position(m->scene_output, m->m.x, m->m.y);
-
-		if (config.blur && m->blur) {
-			wlr_scene_node_set_position(&m->blur->node, m->m.x, m->m.y);
-			wlr_scene_optimized_blur_set_size(m->blur, m->m.width, m->m.height);
-		}
 
 		if (m->lock_surface) {
 			struct wlr_scene_tree *scene_tree = m->lock_surface->surface->data;
