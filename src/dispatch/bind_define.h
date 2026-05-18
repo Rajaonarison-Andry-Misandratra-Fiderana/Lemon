@@ -961,8 +961,11 @@ int32_t centerwin(const Arg *arg) {
 
 extern char **environ;
 
-/* Build a posix_spawn file_actions object that redirects stdout to stderr and detaches from the
-   controlling terminal via setsid (POSIX_SPAWN_SETSID, glibc >= 2.26). Returns 0 on success. */
+/* Build a posix_spawn file_actions object that redirects stdout to stderr,
+   detaches from the controlling terminal via setsid, and resets the child's
+   scheduling policy to normal SCHED_OTHER nice 0 so launched apps do not
+   inherit the compositor's SCHED_RR / nice -10 (which would let a misbehaving
+   app starve everything else). */
 static int spawn_make_actions(posix_spawn_file_actions_t *fa,
                               posix_spawnattr_t *attr) {
 	if (posix_spawn_file_actions_init(fa) != 0)
@@ -972,9 +975,19 @@ static int spawn_make_actions(posix_spawn_file_actions_t *fa,
 		return -1;
 	}
 	posix_spawn_file_actions_adddup2(fa, STDERR_FILENO, STDOUT_FILENO);
+	short flags = 0;
 #ifdef POSIX_SPAWN_SETSID
-	posix_spawnattr_setflags(attr, POSIX_SPAWN_SETSID);
+	flags |= POSIX_SPAWN_SETSID;
 #endif
+#ifdef POSIX_SPAWN_SETSCHEDULER
+	{
+		struct sched_param sp = {.sched_priority = 0};
+		posix_spawnattr_setschedpolicy(attr, SCHED_OTHER);
+		posix_spawnattr_setschedparam(attr, &sp);
+		flags |= POSIX_SPAWN_SETSCHEDULER;
+	}
+#endif
+	posix_spawnattr_setflags(attr, flags);
 	return 0;
 }
 
