@@ -15,6 +15,8 @@
 #include <scenefx/types/wlr_scene.h>
 #include <signal.h>
 #include <spawn.h>
+#include <sched.h>
+#include <sys/mman.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -6812,9 +6814,24 @@ int32_t main(int32_t argc, char *argv[]) {
 	if (!getenv("XDG_RUNTIME_DIR"))
 		die("XDG_RUNTIME_DIR must be set");
 
-	/* Best-effort: lower nice value for snappier input handling. Fails silently
-	   when the process lacks CAP_SYS_NICE or RLIMIT_NICE permission. */
-	(void)setpriority(PRIO_PROCESS, 0, -10);
+	/* Step 1: best-effort soft realtime via SCHED_RR priority 1. Requires
+	   CAP_SYS_NICE or membership in 'realtime' group with appropriate limits
+	   in /etc/security/limits.d/. Falls back to nice -10. */
+	{
+		struct sched_param sp = {.sched_priority = 1};
+		if (sched_setscheduler(0, SCHED_RR, &sp) != 0) {
+			(void)setpriority(PRIO_PROCESS, 0, -10);
+		}
+	}
+
+	/* Step 2: lock current pages in RAM so a page fault never stalls the input
+	   event loop. MCL_ONFAULT keeps it cheap for sparse mappings. Ignored if
+	   process lacks CAP_IPC_LOCK / RLIMIT_MEMLOCK. */
+#ifdef MCL_ONFAULT
+	(void)mlockall(MCL_CURRENT | MCL_ONFAULT);
+#else
+	(void)mlockall(MCL_CURRENT);
+#endif
 
 	setup();
 	run(startup_cmd);
