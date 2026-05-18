@@ -441,16 +441,24 @@ not per frame.
 ## Lemon-Specific Migration Path
 
 Each subsystem above is incrementally adoptable into Lemon without a
-rewrite. Suggested order (lowest risk first):
-1. §3 lazy frame scheduling (extend existing `on_battery` throttle)
-2. §6 strict per-monitor wake (already partial)
-3. §7 surface geometry cache + placeholder
-4. §4 unified animation heap (rewrite of `animation/*`)
-5. §8 texture cache (touches scene buffer path)
-6. §9 focus-aware tiers (touches anim engine + layout)
-7. §2 deadline pacer (rewrite of `rendermon`)
-8. §1 RT input thread (largest refactor; needs careful audit)
-9. §5 smart vsync (after §2)
+rewrite. Status as of the current branch:
+
+| # | Subsystem                                | Status      | Commit prefix             |
+|---|------------------------------------------|-------------|---------------------------|
+| 3 | Lazy frame scheduling                    | DONE        | `perf(redraw)`            |
+| 6 | Per-monitor wake                         | DONE        | `perf(rendermon)`, `perf(battery)` |
+| 7 | Surface geometry cache + placeholder     | DONE (cache only) | `perf(launch)`      |
+| 9 | Focus-aware tiers                        | DONE        | `perf(anim)`              |
+| 4 | Unified animation heap                   | DEFERRED    | needs testbed             |
+| 8 | Texture cache LRU                        | DEFERRED    | wlroots scene already caches; revisit with profile |
+| 2 | Deadline pacer                           | DEFERRED    | needs `presentation-time` instrumentation first |
+| 1 | RT input thread                          | DEFERRED    | largest refactor; needs audit |
+| 5 | Smart vsync                              | DEFERRED    | depends on §2             |
+
+The DEFERRED items require either profiling instrumentation that does not
+yet exist (no `presentation-time` telemetry harness) or a regression test
+suite to validate behavior changes. Adding `LEMON_TRACE=` Perfetto span
+emission would unblock §2 first; pthread realtime audit unblocks §1.
 
 ## Philosophy
 
