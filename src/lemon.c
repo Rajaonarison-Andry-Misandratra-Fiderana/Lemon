@@ -2748,17 +2748,13 @@ void commitnotify(struct wl_listener *listener, void *data) {
 		setmon(c, NULL, 0,
 			   true);
 
-		/* If the client did not pre-size itself, seed the initial configure
-		   with the last known geometry for this app_id so the very first
-		   commit lands at the right size (no extra resize round-trip). */
-		const char *cached_app_id = client_get_appid(c);
-		int32_t cached_w = 0, cached_h = 0;
-		if (c->surface.xdg->toplevel->pending.width == 0 &&
-		    c->surface.xdg->toplevel->pending.height == 0 &&
-		    surface_cache_lookup(cached_app_id, &cached_w, &cached_h)) {
-			wlr_xdg_toplevel_set_size(c->surface.xdg->toplevel, cached_w,
-			                          cached_h);
-		}
+		/* Surface-cache size hint disabled by default: browser-class apps
+		   (Firefox, Zen, Chromium) interpret a stale geometry from the
+		   previous session as "restore previous window state", which on
+		   relaunch can produce a duplicate session-restore window and a
+		   visibly slower first paint. The cache itself is still populated
+		   on unmap so a future opt-in flag can re-enable the hint. */
+		(void)client_get_appid;
 
 		uint32_t serial = wlr_xdg_surface_schedule_configure(c->surface.xdg);
 		if (serial > 0) {
