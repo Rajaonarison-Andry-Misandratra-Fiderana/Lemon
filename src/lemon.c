@@ -724,7 +724,6 @@ static void motionnotify(uint32_t time, struct wlr_input_device *device,
 static void motionrelative(struct wl_listener *listener, void *data);
 
 static void reset_foreign_tolevel(Client *c, Monitor *oldmon, Monitor *newmon);
-static void add_foreign_topleve(Client *c);
 static void exchange_two_client(Client *c1, Client *c2);
 static void outputmgrapply(struct wl_listener *listener, void *data);
 static void outputmgrapplyortest(struct wlr_output_configuration_v1 *config,
@@ -826,7 +825,6 @@ static void reset_keyboard_layout(void);
 static void client_update_oldmonname_record(Client *c, Monitor *m);
 static void pending_kill_client(Client *c);
 static uint32_t get_tags_first_tag_num(uint32_t source_tags);
-static void set_layer_open_animaiton(LayerSurface *l, struct wlr_box geo);
 static void init_fadeout_layers(LayerSurface *l);
 static void layer_actual_size(LayerSurface *l, int32_t *width, int32_t *height);
 static void get_layer_target_geometry(LayerSurface *l,
@@ -835,10 +833,7 @@ static void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer,
 									  int32_t sx, int32_t sy, void *data);
 static double find_animation_curve_at(double t, int32_t type);
 
-static void apply_opacity_to_rect_nodes(Client *c, struct wlr_scene_node *node,
-										double animation_passed);
 static enum corner_location set_client_corner_location(Client *c);
-static double all_output_frame_duration_ms();
 static struct wlr_scene_tree *
 wlr_scene_tree_snapshot(struct wlr_scene_node *node,
 						struct wlr_scene_tree *parent);
@@ -4811,12 +4806,12 @@ void powermgrsetmode(struct wl_listener *listener, void *data) {
 
 void quitsignal(int32_t signo) { quit(NULL); }
 
-void scene_buffer_apply_opacity(struct wlr_scene_buffer *buffer, int32_t sx,
+LEMON_HOT void scene_buffer_apply_opacity(struct wlr_scene_buffer *buffer, int32_t sx,
 								int32_t sy, void *data) {
 	wlr_scene_buffer_set_opacity(buffer, *(double *)data);
 }
 
-void client_set_opacity(Client *c, double opacity) {
+LEMON_HOT void client_set_opacity(Client *c, double opacity) {
 	opacity = CLAMP_FLOAT(opacity, 0.0f, 1.0f);
 	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
 								   scene_buffer_apply_opacity, &opacity);
@@ -4855,7 +4850,7 @@ void monitor_check_skip_frame_timeout(Monitor *m) {
 	}
 }
 
-void rendermon(struct wl_listener *listener, void *data) {
+LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 	Monitor *m = wl_container_of(listener, m, frame);
 	Client *c = NULL, *tmp = NULL;
 	LayerSurface *l = NULL, *tmpl = NULL;
@@ -4865,11 +4860,11 @@ void rendermon(struct wl_listener *listener, void *data) {
 	struct timespec now;
 	bool need_more_frames = false;
 
-	if (session && !session->active) {
+	if (LEMON_UNLIKELY(session && !session->active)) {
 		return;
 	}
 
-	if (!m->wlr_output->enabled || !allow_frame_scheduling)
+	if (LEMON_UNLIKELY(!m->wlr_output->enabled || !allow_frame_scheduling))
 		return;
 
 	frame_clock_begin();
@@ -4915,8 +4910,8 @@ skip:
 	frame_clock_now_timespec(&now);
 	wlr_scene_output_send_frame_done(m->scene_output, &now);
 
-	if (need_more_frames && allow_frame_scheduling) {
-		request_fresh_all_monitors();
+	if (LEMON_UNLIKELY(need_more_frames && allow_frame_scheduling)) {
+		wlr_output_schedule_frame(m->wlr_output);
 	}
 
 	frame_clock_end();

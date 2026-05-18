@@ -7,7 +7,6 @@ static void scroller(Monitor *m);
 static void deck(Monitor *mon);
 static void monocle(Monitor *m);
 static void vertical_tile(Monitor *m);
-static void vertical_overview(Monitor *m);
 static void vertical_grid(Monitor *m);
 static void vertical_scroller(Monitor *m);
 static void vertical_deck(Monitor *mon);

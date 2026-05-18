@@ -547,18 +547,6 @@ int64_t parse_color(const char *hex_str) {
 	return hex_num;
 }
 
-/* Return true if str starts with prefix, comparing case-insensitively. */
-static bool starts_with_ignore_case(const char *str, const char *prefix) {
-	while (*prefix) {
-		if (tolower(*str) != tolower(*prefix)) {
-			return false;
-		}
-		str++;
-		prefix++;
-	}
-	return true;
-}
-
 /* Join values[] with commas up to the first empty/"0" entry; returns a newly malloc'd string. */
 static char *combine_args_until_empty(char *values[], int count) {
 	

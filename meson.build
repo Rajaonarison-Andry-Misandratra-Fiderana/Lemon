@@ -84,12 +84,15 @@ else
     '-fvisibility=hidden',
     '-fstack-protector-strong',
     '-fomit-frame-pointer',
+    '-ffunction-sections',
+    '-fdata-sections',
     '-pipe',
     '-DNDEBUG',
   ]
   link_args += [
     '-Wl,-O1',
     '-Wl,--as-needed',
+    '-Wl,--gc-sections',
     '-Wl,-z,relro',
     '-Wl,-z,now',
   ]

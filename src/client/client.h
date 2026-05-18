@@ -171,16 +171,6 @@ static inline Client *client_get_parent(Client *c) {
 	return p;
 }
 
-/* Return non-zero if the client has any child surfaces. */
-static inline int32_t client_has_children(Client *c) {
-#ifdef XWAYLAND
-	if (client_is_x11(c))
-		return !wl_list_empty(&c->surface.xwayland->children);
-#endif
-
-	return wl_list_length(&c->surface.xdg->link) > 1;
-}
-
 /* Return the client's window title, or "broken" if unset. */
 static inline const char *client_get_title(Client *c) {
 #ifdef XWAYLAND

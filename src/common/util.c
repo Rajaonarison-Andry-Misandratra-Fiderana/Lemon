@@ -81,7 +81,7 @@ static pcre2_code *regex_cache_lookup(const char *pattern,
 }
 
 /* Insert a compiled regex into the cache, evicting the least-recently-used slot if full. */
-static void regex_cache_insert(const char *pattern, pcre2_code *re,
+LEMON_COLD static void regex_cache_insert(const char *pattern, pcre2_code *re,
                                pcre2_match_data *md) {
 	int32_t lru_idx = 0;
 	uint64_t lru_age = UINT64_MAX;
@@ -118,7 +118,7 @@ int32_t regex_match(const char *pattern, const char *str) {
 	pcre2_match_data *match_data = NULL;
 	pcre2_code *re = regex_cache_lookup(pattern, &match_data);
 
-	if (!re) {
+	if (LEMON_UNLIKELY(!re)) {
 		re = pcre2_compile((PCRE2_SPTR)pattern, PCRE2_ZERO_TERMINATED,
 		                   PCRE2_UTF, &errnum, &erroffset, NULL);
 		if (!re) {
@@ -127,12 +127,14 @@ int32_t regex_match(const char *pattern, const char *str) {
 			fprintf(stderr, "PCRE2 error: %s at offset %zu\n", errbuf, erroffset);
 			return 0;
 		}
+		pcre2_jit_compile(re, PCRE2_JIT_COMPLETE);
 		match_data = pcre2_match_data_create_from_pattern(re, NULL);
 		regex_cache_insert(pattern, re, match_data);
 	}
 
 	int32_t ret =
-		pcre2_match(re, (PCRE2_SPTR)str, strlen(str), 0, 0, match_data, NULL);
+		pcre2_match(re, (PCRE2_SPTR)str, strlen(str), 0,
+		            PCRE2_NO_UTF_CHECK, match_data, NULL);
 	return ret >= 0;
 }
 
@@ -149,14 +151,9 @@ uint32_t get_now_in_ms(void) {
 	return timespec_to_ms(&now);
 }
 
-/* Convert a struct timespec into milliseconds as a uint32_t. */
-uint32_t timespec_to_ms(struct timespec *ts) {
-	return (uint32_t)ts->tv_sec * 1000 + (uint32_t)ts->tv_nsec / 1000000;
-}
-
-static struct timespec frame_clock_cached_ts;
-static uint32_t frame_clock_cached_ms;
-static bool frame_clock_cached_valid = false;
+struct timespec frame_clock_cached_ts;
+uint32_t frame_clock_cached_ms;
+bool frame_clock_cached_valid = false;
 
 /* Snapshot the monotonic clock once per frame so subsequent queries are O(1) and consistent. */
 void frame_clock_begin(void) {
@@ -168,22 +165,6 @@ void frame_clock_begin(void) {
 /* Invalidate the per-frame cached clock so the next query re-reads the OS clock. */
 void frame_clock_end(void) {
 	frame_clock_cached_valid = false;
-}
-
-/* Return cached frame time in ms if a frame is in progress; otherwise fall back to live clock. */
-uint32_t frame_now_ms(void) {
-	if (frame_clock_cached_valid)
-		return frame_clock_cached_ms;
-	return get_now_in_ms();
-}
-
-/* Fill ts with cached frame timespec if available, else read CLOCK_MONOTONIC live. */
-void frame_clock_now_timespec(struct timespec *ts) {
-	if (frame_clock_cached_valid) {
-		*ts = frame_clock_cached_ts;
-		return;
-	}
-	clock_gettime(CLOCK_MONOTONIC, ts);
 }
 
 /* Concatenate a NULL-terminated array of strings into a newly malloc'd string joined by sep. */

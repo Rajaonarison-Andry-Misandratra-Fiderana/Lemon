@@ -226,7 +226,7 @@ void layer_fadeout_scene_buffer_apply_effect(struct wlr_scene_buffer *buffer,
 }
 
 /* Advance one tick of a closing layer's fade-out animation and destroy when finished. */
-void fadeout_layer_animation_next_tick(LayerSurface *l) {
+LEMON_HOT void fadeout_layer_animation_next_tick(LayerSurface *l) {
 	if (!l)
 		return;
 
@@ -289,7 +289,7 @@ void fadeout_layer_animation_next_tick(LayerSurface *l) {
 }
 
 /* Advance one tick of a layer surface's geometry/opacity animation towards its target state. */
-void layer_animation_next_tick(LayerSurface *l) {
+LEMON_HOT void layer_animation_next_tick(LayerSurface *l) {
 
 	if (!l || !l->mapped)
 		return;
@@ -525,12 +525,12 @@ void layer_commit(LayerSurface *l) {
 }
 
 /* Tick the layer's top/overlay animation each frame; returns true if rendering progressed. */
-bool layer_draw_frame(LayerSurface *l) {
+LEMON_HOT bool layer_draw_frame(LayerSurface *l) {
 
-	if (!l || !l->mapped)
+	if (LEMON_UNLIKELY(!l || !l->mapped))
 		return false;
 
-	if (!l->need_output_flush)
+	if (LEMON_LIKELY(!l->need_output_flush))
 		return false;
 
 	if (l->layer_surface->current.layer != ZWLR_LAYER_SHELL_V1_LAYER_TOP &&
@@ -550,8 +550,8 @@ bool layer_draw_frame(LayerSurface *l) {
 }
 
 /* Drive one fade-out tick for a snapshot layer surface; returns true while animating. */
-bool layer_draw_fadeout_frame(LayerSurface *l) {
-	if (!l)
+LEMON_HOT bool layer_draw_fadeout_frame(LayerSurface *l) {
+	if (LEMON_UNLIKELY(!l))
 		return false;
 
 	fadeout_layer_animation_next_tick(l);

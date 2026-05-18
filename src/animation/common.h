@@ -63,7 +63,7 @@ static inline struct dvec2 *baked_points_for_type(int32_t type) {
 }
 
 /* Look up the eased y-value at progress t using binary search over the baked curve points. */
-double find_animation_curve_at(double t, int32_t type) {
+LEMON_HOT double find_animation_curve_at(double t, int32_t type) {
 	struct dvec2 *baked_points = baked_points_for_type(type);
 	if (t <= 0.0) return baked_points[0].y;
 	if (t >= 1.0) return baked_points[BAKED_POINTS_COUNT - 1].y;

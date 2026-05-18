@@ -766,7 +766,7 @@ void client_set_drop_area(Client *c) {
 }
 
 /* Apply the current animation clip box, border, shadow and surface scaling to the client. */
-void client_apply_clip(Client *c, float factor) {
+LEMON_HOT void client_apply_clip(Client *c, float factor) {
 
 	if (c->iskilling || !client_surface(c)->mapped)
 		return;
@@ -864,7 +864,7 @@ void client_apply_clip(Client *c, float factor) {
 }
 
 /* Advance one frame of a closing client's fade-out animation and destroy it when finished. */
-void fadeout_client_animation_next_tick(Client *c) {
+LEMON_HOT void fadeout_client_animation_next_tick(Client *c) {
 	if (!c)
 		return;
 
@@ -931,7 +931,7 @@ void fadeout_client_animation_next_tick(Client *c) {
 }
 
 /* Advance one frame of a client's running geometry animation and finalize when complete. */
-void client_animation_next_tick(Client *c) {
+LEMON_HOT void client_animation_next_tick(Client *c) {
 	int32_t passed_time = frame_now_ms() - c->animation.time_started;
 	double animation_passed =
 		c->animation.duration
@@ -1258,8 +1258,8 @@ void resize(Client *c, struct wlr_box geo, int32_t interact) {
 }
 
 /* Drive one fade-out animation tick for a snapshot client; returns true while animating. */
-bool client_draw_fadeout_frame(Client *c) {
-	if (!c)
+LEMON_HOT bool client_draw_fadeout_frame(Client *c) {
+	if (LEMON_UNLIKELY(!c))
 		return false;
 
 	fadeout_client_animation_next_tick(c);
@@ -1316,13 +1316,13 @@ void client_set_unfocused_opacity_animation(Client *c) {
 }
 
 /* Advance focus/open opacity and border-color interpolation; returns true if a redraw is needed. */
-bool client_apply_focus_opacity(Client *c) {
+LEMON_HOT bool client_apply_focus_opacity(Client *c) {
 
 	float *border_color = get_border_color(c);
 
-	if (!c->opacity_animation.running &&
+	if (LEMON_LIKELY(!c->opacity_animation.running &&
 	    !(c->animation.running && c->animation.action == OPEN) &&
-	    !c->isfullscreen && !c->focus_opacity_dirty) {
+	    !c->isfullscreen && !c->focus_opacity_dirty)) {
 		float target = (c == selmon->sel) ? c->focused_opacity : c->unfocused_opacity;
 		if (c->opacity_animation.current_opacity == target &&
 		    memcmp(c->opacity_animation.current_border_color, border_color,
@@ -1415,12 +1415,12 @@ bool client_apply_focus_opacity(Client *c) {
 }
 
 /* Run one render-frame tick for the client: advance geometry and opacity animations as needed. */
-bool client_draw_frame(Client *c) {
+LEMON_HOT bool client_draw_frame(Client *c) {
 
-	if (!c || !client_surface(c)->mapped)
+	if (LEMON_UNLIKELY(!c || !client_surface(c)->mapped))
 		return false;
 
-	if (!c->need_output_flush) {
+	if (LEMON_LIKELY(!c->need_output_flush)) {
 		return client_apply_focus_opacity(c);
 	}
 
