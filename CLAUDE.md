@@ -112,12 +112,7 @@ the compositor.
 - **Idle-notify throttling**: `wlr_idle_notifier_v1_notify_activity` is rate-limited to 4 Hz in `motionnotify` to avoid D-Bus flood under high-poll mice. Keep this throttle when extending; do not add a per-event notify.
 - **Surface geometry cache**: `src/common/surface_cache.h` maintains an LRU 256-entry `app_id → (w,h)` map persisted to `$XDG_CACHE_HOME/lemon/surfaces.db`. Used at xdg initial_commit to send the first configure at the right size and skip a resize round-trip.
 - **Render tiers**: each `Client` carries `render_tier` (FOCUS/VISIBLE/OCCLUDED/HIDDEN). Recomputed in `focusclient` and after `arrange`. `client_draw_frame` throttles OCCLUDED to 30 Hz and skips HIDDEN entirely.
-- **Renderer selection**: `LEMON_RENDERER` env var picks the backend.
-  - unset (default) → plain `wlr_renderer_autocreate`. Honours `WLR_RENDERER=vulkan|gles2` if set, otherwise wlroots picks (Vulkan when Mesa Vulkan drivers are available, GLES2 fallback). Geometry animations and plain window borders work; corner radius, per-buffer opacity and snapshot-fadeout effects are unused by design.
-  - `fx` → scenefx GLES2 `fx_renderer` (opt-in). Re-enables corner radius, per-buffer opacity, and the close-anim snapshot fadeout. Use only if those visuals are wanted at the cost of Vulkan.
-  - `vulkan` → sets `WLR_RENDERER=vulkan` before autocreate.
-  - `gles2` → forces plain GLES2 backend.
-  scenefx 0.4 has no Vulkan path; the default keeps Vulkan available at the cost of scenefx-only effects that this fork does not rely on.
+- **Renderer**: scenefx GLES2 `fx_renderer`. The scenefx scene tree asserts `wlr_renderer_is_fx()` at runtime, so pairing it with a plain wlroots renderer (e.g. Vulkan) aborts the compositor. Switching to Vulkan requires either a scenefx Vulkan port upstream or replacing `scenefx/types/wlr_scene.h` with vanilla `wlr/types/wlr_scene.h` (a sizeable refactor that loses corner radius / per-buffer opacity / snapshot fadeout). Don't reintroduce a `LEMON_RENDERER` env switch without dropping the scenefx scene tree first.
 
 ## Common tasks
 

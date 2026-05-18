@@ -1405,11 +1405,7 @@ void gpureset(struct wl_listener *listener, void *data) {
 
 	wlr_log(WLR_DEBUG, "gpu reset");
 
-	const char *renderer_choice = getenv("LEMON_RENDERER");
-	if (renderer_choice && strcmp(renderer_choice, "fx") == 0)
-		drw = fx_renderer_create(backend);
-	else
-		drw = wlr_renderer_autocreate(backend);
+	drw = fx_renderer_create(backend);
 	if (!drw)
 		die("couldn't recreate renderer");
 
@@ -5795,41 +5791,10 @@ void setup(void) {
 	drag_icon = wlr_scene_tree_create(&scene->tree);
 	wlr_scene_node_place_below(&drag_icon->node, &layers[LyrBlock]->node);
 
-	/* Renderer selection.
-	 *
-	 *   LEMON_RENDERER unset (default)
-	 *       Plain wlroots renderer via wlr_renderer_autocreate. Honours
-	 *       WLR_RENDERER=vulkan / gles2 if the user sets it; otherwise
-	 *       wlroots picks the best backend (typically Vulkan when Mesa
-	 *       Vulkan drivers are present, GLES2 fallback). Geometry
-	 *       animations and plain window borders render normally; corner
-	 *       radius, per-buffer opacity and fadeout-snapshot effects are
-	 *       skipped — by design, this fork doesn't need them.
-	 *
-	 *   LEMON_RENDERER=fx
-	 *       Opt back into the scenefx GLES2 fx_renderer. Re-enables
-	 *       corner radius, per-buffer opacity, and the close-anim
-	 *       snapshot fadeout. Use this if you want the full visual feel
-	 *       at the cost of Vulkan support.
-	 *
-	 *   LEMON_RENDERER=vulkan
-	 *       Force WLR_RENDERER=vulkan before autocreate (errors out on
-	 *       Mesa builds without Vulkan).
-	 *
-	 *   LEMON_RENDERER=gles2
-	 *       Force WLR_RENDERER=gles2 before autocreate.
-	 */
-	const char *renderer_choice = getenv("LEMON_RENDERER");
-	if (renderer_choice && strcmp(renderer_choice, "fx") == 0) {
-		drw = fx_renderer_create(backend);
-	} else {
-		if (renderer_choice && strcmp(renderer_choice, "vulkan") == 0)
-			setenv("WLR_RENDERER", "vulkan", 1);
-		else if (renderer_choice && strcmp(renderer_choice, "gles2") == 0)
-			setenv("WLR_RENDERER", "gles2", 1);
-		drw = wlr_renderer_autocreate(backend);
-	}
-
+	/* scenefx 0.4 asserts wlr_renderer_is_fx() inside its scene tree, so
+	   the renderer MUST be fx_renderer for the scene to work. Vulkan
+	   adoption needs scenefx to grow a Vulkan backend upstream first. */
+	drw = fx_renderer_create(backend);
 	if (!drw)
 		die("couldn't create renderer");
 
