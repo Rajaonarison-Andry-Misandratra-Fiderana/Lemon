@@ -1324,18 +1324,29 @@ LEMON_HOT bool client_draw_frame(Client *c) {
 	}
 
 	/* Architecture brief §9: throttle by render tier. HIDDEN never ticks;
-	   OCCLUDED caps at ~30 Hz; FOCUS/VISIBLE tick every frame. */
+	   OCCLUDED caps at ~30 Hz; FOCUS/VISIBLE tick every frame.
+
+	   IMPORTANT: tag transition animations (tagouting / tagining) flip the
+	   client's visibility *via* the animation itself (set_arrange_hidden
+	   relies on the tick to slide off-screen and then disable the scene).
+	   If we short-circuit here we leave tagouting=true forever and the
+	   scene node never gets disabled, which is what made windows appear
+	   to follow the user across workspaces. The opening animation has the
+	   same property (no_output_flush + animation.running). */
+	bool in_tag_transition = c->animation.tagouting || c->animation.tagining ||
+	                         c->animation.tagouted;
 	uint32_t now_ms = frame_now_ms();
-	if (c->render_tier == TIER_HIDDEN) {
+	if (c->render_tier == TIER_HIDDEN && !in_tag_transition &&
+	    !c->animation.running) {
 		c->animation.current = c->geom;
-		c->animation.running = false;
 		wlr_scene_node_set_position(&c->scene->node, c->geom.x, c->geom.y);
 		c->need_output_flush = false;
 		return false;
 	}
-	if (c->render_tier == TIER_OCCLUDED &&
+	if (c->render_tier == TIER_OCCLUDED && !in_tag_transition &&
+	    !c->animation.running &&
 	    now_ms - c->tier_last_anim_ms < TIER_OCCLUDED_INTERVAL_MS) {
-		return c->animation.running;
+		return false;
 	}
 	c->tier_last_anim_ms = now_ms;
 
