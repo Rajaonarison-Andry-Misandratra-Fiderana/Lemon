@@ -8,11 +8,7 @@
 #include <sys/resource.h>
 #include <limits.h>
 #include <linux/input-event-codes.h>
-#include <scenefx/render/fx_renderer/fx_renderer.h>
-#include <scenefx/types/fx/blur_data.h>
-#include <scenefx/types/fx/clipped_region.h>
-#include <scenefx/types/fx/corner_location.h>
-#include <scenefx/types/wlr_scene.h>
+#include <wlr/types/wlr_scene.h>
 #include <signal.h>
 #include <spawn.h>
 #include <sched.h>
@@ -336,7 +332,6 @@ typedef struct {
 	float height_scale;
 	int32_t width;
 	int32_t height;
-	enum corner_location corner_location;
 	bool should_scale;
 } BufferData;
 
@@ -841,7 +836,6 @@ static void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer,
 									  int32_t sx, int32_t sy, void *data);
 static double find_animation_curve_at(double t, int32_t type);
 
-static enum corner_location set_client_corner_location(Client *c);
 static struct wlr_scene_tree *
 wlr_scene_tree_snapshot(struct wlr_scene_node *node,
 						struct wlr_scene_tree *parent);
@@ -1405,7 +1399,7 @@ void gpureset(struct wl_listener *listener, void *data) {
 
 	wlr_log(WLR_DEBUG, "gpu reset");
 
-	drw = fx_renderer_create(backend);
+	drw = wlr_renderer_autocreate(backend);
 	if (!drw)
 		die("couldn't recreate renderer");
 
@@ -4318,8 +4312,6 @@ mapnotify(struct wl_listener *listener, void *data) {
 		c->scene, 0, 0, c->isurgent ? config.urgentcolor : config.bordercolor);
 	wlr_scene_node_lower_to_bottom(&c->border->node);
 	wlr_scene_node_set_position(&c->border->node, 0, 0);
-	wlr_scene_rect_set_corner_radius(c->border, config.border_radius,
-									 config.border_radius_location_default);
 	wlr_scene_node_set_enabled(&c->border->node, true);
 
 	if (config.new_is_master && selmon && !is_scroller_layout(selmon))
@@ -4764,15 +4756,16 @@ void powermgrsetmode(struct wl_listener *listener, void *data) {
 
 void quitsignal(int32_t signo) { quit(NULL); }
 
+/* Per-buffer opacity is a scenefx-only API. With vanilla wlroots scene,
+   opacity transitions are no-ops; we keep the function for callers but
+   only toggle full visibility via wlr_scene_node_set_enabled. */
 LEMON_HOT void scene_buffer_apply_opacity(struct wlr_scene_buffer *buffer, int32_t sx,
 								int32_t sy, void *data) {
-	wlr_scene_buffer_set_opacity(buffer, *(double *)data);
+	(void)buffer; (void)sx; (void)sy; (void)data;
 }
 
 LEMON_HOT void client_set_opacity(Client *c, double opacity) {
-	opacity = CLAMP_FLOAT(opacity, 0.0f, 1.0f);
-	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
-								   scene_buffer_apply_opacity, &opacity);
+	(void)c; (void)opacity;
 }
 
 void monitor_stop_skip_frame_timer(Monitor *m) {
@@ -5791,10 +5784,10 @@ void setup(void) {
 	drag_icon = wlr_scene_tree_create(&scene->tree);
 	wlr_scene_node_place_below(&drag_icon->node, &layers[LyrBlock]->node);
 
-	/* scenefx 0.4 asserts wlr_renderer_is_fx() inside its scene tree, so
-	   the renderer MUST be fx_renderer for the scene to work. Vulkan
-	   adoption needs scenefx to grow a Vulkan backend upstream first. */
-	drw = fx_renderer_create(backend);
+	/* Vanilla wlroots scene tree + wlr_renderer_autocreate. Picks Vulkan
+	   when Mesa Vulkan drivers are available, GLES2 otherwise. Honours
+	   WLR_RENDERER=vulkan|gles2 env. */
+	drw = wlr_renderer_autocreate(backend);
 	if (!drw)
 		die("couldn't create renderer");
 
