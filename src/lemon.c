@@ -4524,7 +4524,18 @@ LEMON_HOT void motionnotify(uint32_t time, struct wlr_input_device *device, doub
 
 		wlr_cursor_move(cursor, device, dx, dy);
 		handlecursoractivity();
-		wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+		/* Throttle idle-notify D-Bus signal to once per 250 ms.
+		   Continuous cursor motion was flooding the bus and adding latency
+		   on every event. Activity is still reported promptly enough for
+		   any idle-watcher (250 ms is well under typical inhibit windows). */
+		{
+			static uint32_t last_idle_notify_ms = 0;
+			uint32_t now_ms_motion = frame_now_ms();
+			if (now_ms_motion - last_idle_notify_ms >= 250) {
+				wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+				last_idle_notify_ms = now_ms_motion;
+			}
+		}
 
 		if (config.sloppyfocus) {
 			if (!selmon ||
