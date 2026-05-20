@@ -153,6 +153,12 @@ typedef struct {
 } GestureBinding;
 
 typedef struct {
+	uint32_t timeout_ms;
+	int32_t (*func)(const Arg *);
+	Arg arg;
+} IdleBinding;
+
+typedef struct {
 	int32_t id;
 	char *layout_name;
 	char *monitor_name;
@@ -337,6 +343,9 @@ typedef struct {
 
 	GestureBinding *gesture_bindings;
 	int32_t gesture_bindings_count;
+
+	IdleBinding *idle_bindings;
+	int32_t idle_bindings_count;
 
 	ConfigEnv **env;
 	int32_t env_count;
@@ -2486,6 +2495,82 @@ bool parse_option(Config *config, char *key, char *value) {
 			config->axis_bindings_count++;
 		}
 
+	} else if (strncmp(key, "idlebind", 8) == 0) {
+		config->idle_bindings =
+			realloc(config->idle_bindings,
+					(config->idle_bindings_count + 1) * sizeof(IdleBinding));
+		if (!config->idle_bindings) {
+			fprintf(stderr,
+					"\033[1m\033[31m[ERROR]:\033[33m Failed to allocate "
+					"memory for idle bindings\n");
+			return false;
+		}
+
+		IdleBinding *binding =
+			&config->idle_bindings[config->idle_bindings_count];
+		memset(binding, 0, sizeof(IdleBinding));
+
+		char timeout_str[256], func_name[256], arg_value[256] = "0\0",
+			arg_value2[256] = "0\0", arg_value3[256] = "0\0",
+			arg_value4[256] = "0\0", arg_value5[256] = "0\0";
+		if (sscanf(value,
+				   "%255[^,],%255[^,],%255[^,],%255[^,],%255[^,],%255[^,],"
+				   "%255[^\n]",
+				   timeout_str, func_name, arg_value, arg_value2, arg_value3,
+				   arg_value4, arg_value5) < 2) {
+			fprintf(stderr,
+					"\033[1m\033[31m[ERROR]:\033[33m Invalid idlebind "
+					"format: %s\n",
+					value);
+			return false;
+		}
+
+		trim_whitespace(timeout_str);
+		trim_whitespace(func_name);
+		trim_whitespace(arg_value);
+		trim_whitespace(arg_value2);
+		trim_whitespace(arg_value3);
+		trim_whitespace(arg_value4);
+		trim_whitespace(arg_value5);
+
+		int32_t timeout_s = atoi(timeout_str);
+		if (timeout_s <= 0) {
+			fprintf(stderr,
+					"\033[1m\033[31m[ERROR]:\033[33m idlebind timeout must be "
+					"a positive number of seconds: %s\n",
+					timeout_str);
+			return false;
+		}
+		binding->timeout_ms = (uint32_t)timeout_s * 1000;
+		binding->arg.v = NULL;
+		binding->arg.v2 = NULL;
+		binding->arg.v3 = NULL;
+		binding->func =
+			parse_func_name(func_name, &binding->arg, arg_value, arg_value2,
+							arg_value3, arg_value4, arg_value5);
+
+		if (!binding->func) {
+			if (binding->arg.v) {
+				free(binding->arg.v);
+				binding->arg.v = NULL;
+			}
+			if (binding->arg.v2) {
+				free(binding->arg.v2);
+				binding->arg.v2 = NULL;
+			}
+			if (binding->arg.v3) {
+				free(binding->arg.v3);
+				binding->arg.v3 = NULL;
+			}
+			fprintf(stderr,
+					"\033[1m\033[31m[ERROR]:\033[33m Unknown dispatch in "
+					"idlebind: \033[1m\033[31m%s\n",
+					func_name);
+			return false;
+		} else {
+			config->idle_bindings_count++;
+		}
+
 	} else if (strncmp(key, "switchbind", 10) == 0) {
 		config->switch_bindings = realloc(config->switch_bindings,
 										  (config->switch_bindings_count + 1) *
@@ -2926,6 +3011,26 @@ void free_config(void) {
 		free(config.gesture_bindings);
 		config.gesture_bindings = NULL;
 		config.gesture_bindings_count = 0;
+	}
+
+	if (config.idle_bindings) {
+		for (i = 0; i < config.idle_bindings_count; i++) {
+			if (config.idle_bindings[i].arg.v) {
+				free((void *)config.idle_bindings[i].arg.v);
+				config.idle_bindings[i].arg.v = NULL;
+			}
+			if (config.idle_bindings[i].arg.v2) {
+				free((void *)config.idle_bindings[i].arg.v2);
+				config.idle_bindings[i].arg.v2 = NULL;
+			}
+			if (config.idle_bindings[i].arg.v3) {
+				free((void *)config.idle_bindings[i].arg.v3);
+				config.idle_bindings[i].arg.v3 = NULL;
+			}
+		}
+		free(config.idle_bindings);
+		config.idle_bindings = NULL;
+		config.idle_bindings_count = 0;
 	}
 
 	if (config.tag_rules) {
@@ -3424,6 +3529,8 @@ bool parse_config(void) {
 	config.switch_bindings_count = 0;
 	config.gesture_bindings = NULL;
 	config.gesture_bindings_count = 0;
+	config.idle_bindings = NULL;
+	config.idle_bindings_count = 0;
 	config.env = NULL;
 	config.env_count = 0;
 	config.exec = NULL;
@@ -3740,6 +3847,7 @@ void reset_option(void) {
 int32_t reload_config(const Arg *arg) {
 	parse_config();
 	reset_option();
+	setup_idle_timers();
 	printstatus();
 	return 1;
 }

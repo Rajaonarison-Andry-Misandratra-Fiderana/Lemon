@@ -878,6 +878,10 @@ static void last_cursor_surface_destroy(struct wl_listener *listener,
 										void *data);
 static int32_t keep_idle_inhibit(void *data);
 static void check_keep_idle_inhibit(Client *c);
+static void setup_idle_timers(void);
+static void reset_idle_timers(void);
+static void destroy_idle_timers(void);
+static int32_t idle_timer_callback(void *data);
 static void pre_caculate_before_arrange(Monitor *m, bool want_animation,
 										bool from_view, bool only_caculate);
 static void client_pending_fullscreen_state(Client *c, int32_t isfullscreen);
@@ -931,6 +935,7 @@ static struct wl_list fadeout_clients;
 static struct wl_list fadeout_layers;
 static struct wlr_idle_notifier_v1 *idle_notifier;
 static struct wlr_idle_inhibit_manager_v1 *idle_inhibit_mgr;
+static bool idle_inhibited = false;
 static struct wlr_layer_shell_v1 *layer_shell;
 static struct wlr_output_manager_v1 *output_mgr;
 static struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_mgr;
@@ -2422,6 +2427,7 @@ void checkidleinhibitor(struct wlr_surface *exclude) {
 	}
 
 	wlr_idle_notifier_v1_set_inhibited(idle_notifier, inhibited);
+	idle_inhibited = inhibited;
 }
 
 /* Listener: cached cursor surface destroyed — drop the dangling pointer. */
@@ -4059,6 +4065,7 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 	uint32_t mods = wlr_keyboard_get_modifiers(&group->wlr_group->keyboard);
 
 	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+	reset_idle_timers();
 
 	if (config.ov_tab_mode && !locked && group == kb_group &&
 		event->state == WL_KEYBOARD_KEY_STATE_RELEASED &&
@@ -5907,6 +5914,8 @@ void setup(void) {
 	keep_idle_inhibit_source = wl_event_loop_add_timer(
 		wl_display_get_event_loop(dpy), keep_idle_inhibit, NULL);
 
+	setup_idle_timers();
+
 	layer_shell = wlr_layer_shell_v1_create(dpy, 4);
 	wl_signal_add(&layer_shell->events.new_surface, &new_layer_surface);
 
@@ -6159,7 +6168,69 @@ void overview_restore(Client *c, const Arg *arg) {
 	}
 }
 
+/* Runtime idle timer: pairs a configured idle binding with its event source. */
+struct IdleTimer {
+	const IdleBinding *binding;
+	struct wl_event_source *source;
+};
+static struct IdleTimer *idle_timers = NULL;
+static int32_t idle_timers_count = 0;
+
+/* Fire one idle binding's action once its timeout elapses with no activity.
+   Skips while the session is inactive or a client inhibits idle, re-arming in
+   the inhibit case so it can still fire once the inhibit clears. */
+int32_t idle_timer_callback(void *data) {
+	struct IdleTimer *t = data;
+	if (session && !session->active)
+		return 0;
+	if (idle_inhibited) {
+		wl_event_source_timer_update(t->source, t->binding->timeout_ms);
+		return 0;
+	}
+	if (t->binding->func)
+		t->binding->func(&t->binding->arg);
+	return 0;
+}
+
+/* Re-arm every idle timer to its full timeout; called on user activity. */
+void reset_idle_timers(void) {
+	for (int32_t i = 0; i < idle_timers_count; i++)
+		wl_event_source_timer_update(idle_timers[i].source,
+									 idle_timers[i].binding->timeout_ms);
+}
+
+/* Tear down all idle timer event sources. */
+void destroy_idle_timers(void) {
+	if (!idle_timers)
+		return;
+	for (int32_t i = 0; i < idle_timers_count; i++) {
+		if (idle_timers[i].source)
+			wl_event_source_remove(idle_timers[i].source);
+	}
+	free(idle_timers);
+	idle_timers = NULL;
+	idle_timers_count = 0;
+}
+
+/* (Re)create one armed event-loop timer per configured idle binding. */
+void setup_idle_timers(void) {
+	destroy_idle_timers();
+	if (config.idle_bindings_count <= 0)
+		return;
+	idle_timers = ecalloc(config.idle_bindings_count, sizeof(*idle_timers));
+	for (int32_t i = 0; i < config.idle_bindings_count; i++) {
+		idle_timers[i].binding = &config.idle_bindings[i];
+		idle_timers[i].source = wl_event_loop_add_timer(
+			event_loop, idle_timer_callback, &idle_timers[i]);
+		if (idle_timers[i].source)
+			wl_event_source_timer_update(idle_timers[i].source,
+										 config.idle_bindings[i].timeout_ms);
+	}
+	idle_timers_count = config.idle_bindings_count;
+}
+
 void handlecursoractivity(void) {
+	reset_idle_timers();
 	wl_event_source_timer_update(hide_cursor_source,
 								 config.cursor_hide_timeout * 1000);
 
