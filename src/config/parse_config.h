@@ -3468,7 +3468,7 @@ void set_value_default() {
 	config.button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
 
 	config.border_radius = 0;
-	config.border_radius_location_default = 0;
+	config.border_radius_location_default = CORNER_LOCATION_ALL;
 	config.focused_opacity = 1.0f;
 	config.unfocused_opacity = 1.0f;
 

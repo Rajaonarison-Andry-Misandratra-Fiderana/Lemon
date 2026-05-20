@@ -11,6 +11,28 @@ void set_rect_size(struct wlr_scene_rect *rect, int32_t width, int32_t height) {
 	wlr_scene_rect_set_size(rect, GEZERO(width), GEZERO(height));
 }
 
+/* Determine which corners of the client should be rounded based on monitor edge clipping. */
+enum corner_location set_client_corner_location(Client *c) {
+	enum corner_location current_corner_location = CORNER_LOCATION_ALL;
+	struct wlr_box target_geom =
+		config.animations ? c->animation.current : c->geom;
+	if (target_geom.x + config.border_radius <= c->mon->m.x) {
+		current_corner_location &= ~CORNER_LOCATION_LEFT;
+	}
+	if (target_geom.x + target_geom.width - config.border_radius >=
+		c->mon->m.x + c->mon->m.width) {
+		current_corner_location &= ~CORNER_LOCATION_RIGHT;
+	}
+	if (target_geom.y + config.border_radius <= c->mon->m.y) {
+		current_corner_location &= ~CORNER_LOCATION_TOP;
+	}
+	if (target_geom.y + target_geom.height - config.border_radius >=
+		c->mon->m.y + c->mon->m.height) {
+		current_corner_location &= ~CORNER_LOCATION_BOTTOM;
+	}
+	return current_corner_location;
+}
+
 /* Return true if the monitor's current layout stacks clients horizontally (tile/deck). */
 bool is_horizontal_stack_layout(Monitor *m) {
 
@@ -206,10 +228,14 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 		}
 	}
 
-	(void)buffer_data;
+	if (wlr_xdg_popup_try_from_wlr_surface(surface) != NULL)
+		return;
+
+	wlr_scene_buffer_set_corner_radius(buffer, config.border_radius,
+									   buffer_data->corner_location);
 }
 
-/* Apply scaling to every buffer in the client's surface tree. */
+/* Apply scaling and corner-radius effects to every buffer in the client's surface tree. */
 void buffer_set_effect(Client *c, BufferData data) {
 
 	if (!c || c->iskilling)
@@ -222,6 +248,12 @@ void buffer_set_effect(Client *c, BufferData data) {
 
 	if (c == grabc)
 		data.should_scale = false;
+
+	if (c->isnoradius || c->isfullscreen ||
+		(config.no_radius_when_single && c->mon &&
+		 c->mon->visible_tiling_clients == 1)) {
+		data.corner_location = CORNER_LOCATION_NONE;
+	}
 
 	wlr_scene_node_for_each_buffer(&c->scene_surface->node,
 								   scene_buffer_apply_effect, &data);
@@ -338,6 +370,14 @@ void apply_border(Client *c) {
 
 	apply_split_border(c, hit_no_border);
 
+	enum corner_location current_corner_location;
+	if (c->isfullscreen || (config.no_radius_when_single && c->mon &&
+							c->mon->visible_tiling_clients == 1)) {
+		current_corner_location = CORNER_LOCATION_NONE;
+	} else {
+		current_corner_location = set_client_corner_location(c);
+	}
+
 	if (hit_no_border && config.smartgaps) {
 		c->bw = 0;
 		c->fake_no_border = true;
@@ -406,12 +446,19 @@ void apply_border(Client *c) {
 			MIN(clip_box.height, inner_surface_height + bottom_offset);
 	}
 
-	(void)inner_surface_x; (void)inner_surface_y;
-	(void)inner_surface_width; (void)inner_surface_height;
+	struct clipped_region clipped_region = {
+		.area = {inner_surface_x, inner_surface_y, inner_surface_width,
+				 inner_surface_height},
+		.corner_radius = config.border_radius,
+		.corners = current_corner_location,
+	};
 
 	wlr_scene_node_set_position(&c->scene_surface->node, c->bw, c->bw);
 	wlr_scene_rect_set_size(c->border, rect_width, rect_height);
 	wlr_scene_node_set_position(&c->border->node, rect_x, rect_y);
+	wlr_scene_rect_set_corner_radius(c->border, config.border_radius,
+									 current_corner_location);
+	wlr_scene_rect_set_clipped_region(c->border, clipped_region);
 }
 
 /* Shrink the clip box and toggle visibility for clients sliding off-screen during tag transitions. */
@@ -650,6 +697,9 @@ LEMON_HOT void client_apply_clip(Client *c, float factor) {
 	struct ivec2 offset;
 	BufferData buffer_data;
 
+	enum corner_location current_corner_location =
+		set_client_corner_location(c);
+
 	if (!config.animations) {
 		c->animation.running = false;
 		c->need_output_flush = false;
@@ -668,7 +718,8 @@ LEMON_HOT void client_apply_clip(Client *c, float factor) {
 
 		wlr_scene_subsurface_tree_set_clip(&c->scene_surface->node, &clip_box);
 		buffer_set_effect(c, (BufferData){1.0f, 1.0f, clip_box.width,
-										  clip_box.height, true});
+										  clip_box.height,
+										  current_corner_location, true});
 		return;
 	}
 
@@ -716,6 +767,7 @@ LEMON_HOT void client_apply_clip(Client *c, float factor) {
 	buffer_data.should_scale = true;
 	buffer_data.width = clip_box.width;
 	buffer_data.height = clip_box.height;
+	buffer_data.corner_location = current_corner_location;
 
 	if (factor == 1.0) {
 		buffer_data.width_scale = 1.0;

@@ -25,6 +25,7 @@ xkbcommon_dep = dependency('xkbcommon')
 libinput_dep = dependency('libinput',version: '>=1.27.1')
 libwayland_client_dep = dependency('wayland-client')
 pcre2_dep = dependency('libpcre2-8')
+libscenefx_dep = dependency('scenefx-0.4',version: '>=0.4.1')
 
 # Optional faster allocator (jemalloc/mimalloc). Off by default.
 fast_alloc_dep = dependency('', required: false)
@@ -163,6 +164,7 @@ lemon_deps = [
   libm,
   xcb,
   xlibs,
+  libscenefx_dep,
   wayland_server_dep,
   wlroots_dep,
   xkbcommon_dep,
