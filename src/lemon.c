@@ -2173,12 +2173,15 @@ static bool swipe_osd_control(struct wlr_pointer_swipe_update_event *event) {
 		}
 	} else { /* horizontal: right = brighter */
 		swipe_osd_accum += event->dx;
+		/* brightnessctl does the real change (reliable sysfs write); swayosd
+		   only shows the OSD (--brightness 0 = no delta), since swayosd's own
+		   brightness backend may not be able to write the backlight. */
 		while (swipe_osd_accum >= step) {
-			osd_emit("swayosd-client --brightness 2");
+			osd_emit("brightnessctl set 2%+ && swayosd-client --brightness 0");
 			swipe_osd_accum -= step;
 		}
 		while (swipe_osd_accum <= -step) {
-			osd_emit("swayosd-client --brightness -2");
+			osd_emit("brightnessctl set 2%- && swayosd-client --brightness 0");
 			swipe_osd_accum += step;
 		}
 	}
