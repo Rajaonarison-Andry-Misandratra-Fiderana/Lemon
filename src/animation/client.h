@@ -893,10 +893,15 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 			(double)c->current.x, (double)c->current.y,
 			(double)c->current.width, (double)c->current.height,
 		};
-		bool settled = spring_box_step(
-			c->animation.vis, c->animation.vel, target, dt,
-			config.animation_spring_mass, config.animation_spring_tension,
-			config.animation_spring_friction);
+		/* Tag (workspace) slides use their own, usually faster, spring. */
+		bool is_tag = c->animation.tagining || c->animation.tagouting;
+		double k = is_tag ? config.animation_spring_tag_tension
+						  : config.animation_spring_tension;
+		double fr = is_tag ? config.animation_spring_tag_friction
+						   : config.animation_spring_friction;
+		bool settled = spring_box_step(c->animation.vis, c->animation.vel,
+									   target, dt, config.animation_spring_mass,
+									   k, fr);
 
 		if (settled) {
 			x = c->current.x;

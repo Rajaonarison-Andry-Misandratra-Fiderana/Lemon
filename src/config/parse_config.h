@@ -366,6 +366,9 @@ typedef struct {
 	double animation_spring_mass;
 	double animation_spring_tension;
 	double animation_spring_friction;
+	/* Separate, usually faster spring for tag (workspace) slide transitions. */
+	double animation_spring_tag_tension;
+	double animation_spring_tag_friction;
 
 	ConfigEnv **env;
 	int32_t env_count;
@@ -1388,6 +1391,10 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->animation_spring_tension = atof(value);
 	} else if (strcmp(key, "animation_spring_friction") == 0) {
 		config->animation_spring_friction = atof(value);
+	} else if (strcmp(key, "animation_spring_tag_tension") == 0) {
+		config->animation_spring_tag_tension = atof(value);
+	} else if (strcmp(key, "animation_spring_tag_friction") == 0) {
+		config->animation_spring_tag_friction = atof(value);
 	} else if (strcmp(key, "focus_qos") == 0) {
 		config->focus_qos = atoi(value);
 	} else if (strcmp(key, "focus_qos_bg_nice") == 0) {
@@ -3257,6 +3264,10 @@ void override_config(void) {
 	   animation would never stop and the compositor could never sleep. */
 	if (config.animation_spring_friction < 1.0)
 		config.animation_spring_friction = 1.0;
+	if (config.animation_spring_tag_tension < 1.0)
+		config.animation_spring_tag_tension = 1.0;
+	if (config.animation_spring_tag_friction < 1.0)
+		config.animation_spring_tag_friction = 1.0;
 	config.drag_tile_refresh_interval =
 		CLAMP_FLOAT(config.drag_tile_refresh_interval, 1.0f, 16.0f);
 	config.drag_floating_refresh_interval =
@@ -3422,6 +3433,9 @@ void set_value_default() {
 	   k=120,m=1 is ~21.9, so friction 22 settles cleanly with no overshoot. */
 	config.animation_spring_tension = 120.0;
 	config.animation_spring_friction = 22.0;
+	/* Faster than the global spring: k=200,c=28 ~= critical, snappy slide. */
+	config.animation_spring_tag_tension = 200.0;
+	config.animation_spring_tag_friction = 28.0;
 	config.drag_tile_refresh_interval = 8.0f;
 	config.drag_floating_refresh_interval = 8.0f;
 	config.allow_tearing = TEARING_DISABLED;
