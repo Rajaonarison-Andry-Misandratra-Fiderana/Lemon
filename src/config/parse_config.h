@@ -158,6 +158,13 @@ typedef struct {
 	Arg arg;
 } IdleBinding;
 
+/* Built-in action run when idle_timeout elapses. */
+enum IdleAction {
+	IDLE_ACTION_OFF = 0, /* DPMS: blank screens, wake on input */
+	IDLE_ACTION_SUSPEND, /* systemctl suspend */
+	IDLE_ACTION_HIBERNATE, /* systemctl hibernate */
+};
+
 typedef struct {
 	int32_t id;
 	char *layout_name;
@@ -346,6 +353,9 @@ typedef struct {
 
 	IdleBinding *idle_bindings;
 	int32_t idle_bindings_count;
+
+	int32_t idle_timeout;
+	int32_t idle_action;
 
 	ConfigEnv **env;
 	int32_t env_count;
@@ -1358,6 +1368,15 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->xwayland_persistence = atoi(value);
 	} else if (strcmp(key, "syncobj_enable") == 0) {
 		config->syncobj_enable = atoi(value);
+	} else if (strcmp(key, "idle_timeout") == 0) {
+		config->idle_timeout = atoi(value);
+	} else if (strcmp(key, "idle_action") == 0) {
+		if (strcmp(value, "suspend") == 0)
+			config->idle_action = IDLE_ACTION_SUSPEND;
+		else if (strcmp(value, "hibernate") == 0)
+			config->idle_action = IDLE_ACTION_HIBERNATE;
+		else
+			config->idle_action = IDLE_ACTION_OFF;
 	} else if (strcmp(key, "drag_tile_refresh_interval") == 0) {
 		config->drag_tile_refresh_interval = atof(value);
 	} else if (strcmp(key, "drag_floating_refresh_interval") == 0) {
@@ -3198,6 +3217,10 @@ void override_config(void) {
 	config.overviewgappo = CLAMP_INT(config.overviewgappo, 0, 1000);
 	config.xwayland_persistence = CLAMP_INT(config.xwayland_persistence, 0, 1);
 	config.syncobj_enable = CLAMP_INT(config.syncobj_enable, 0, 1);
+	if (config.idle_timeout < 0)
+		config.idle_timeout = 0;
+	config.idle_action = CLAMP_INT(config.idle_action, IDLE_ACTION_OFF,
+								   IDLE_ACTION_HIBERNATE);
 	config.drag_tile_refresh_interval =
 		CLAMP_FLOAT(config.drag_tile_refresh_interval, 1.0f, 16.0f);
 	config.drag_floating_refresh_interval =
@@ -3352,6 +3375,8 @@ void set_value_default() {
 	config.single_scratchpad = 1;
 	config.xwayland_persistence = 1;
 	config.syncobj_enable = 1;
+	config.idle_timeout = 300;
+	config.idle_action = IDLE_ACTION_OFF;
 	config.drag_tile_refresh_interval = 8.0f;
 	config.drag_floating_refresh_interval = 8.0f;
 	config.allow_tearing = TEARING_DISABLED;

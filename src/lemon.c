@@ -6176,6 +6176,50 @@ struct IdleTimer {
 static struct IdleTimer *idle_timers = NULL;
 static int32_t idle_timers_count = 0;
 
+/* Built-in idle action (idle_timeout/idle_action). One timer, no polling. */
+static struct wl_event_source *idle_action_source = NULL;
+static bool idle_screen_off = false;
+
+/* DPMS: enable or disable every output. off=true blanks the screens. */
+void idle_set_screens(bool off) {
+	Monitor *m;
+	wl_list_for_each(m, &mons, link) {
+		if (!m->wlr_output)
+			continue;
+		struct wlr_output_state state = {0};
+		wlr_output_state_set_enabled(&state, !off);
+		wlr_output_commit_state(m->wlr_output, &state);
+		m->asleep = off;
+	}
+	idle_screen_off = off;
+	updatemons(NULL, NULL);
+}
+
+/* Built-in action after idle_timeout: blank screen, suspend, or hibernate.
+   Suspended while the session is inactive or a client inhibits idle. */
+int32_t idle_action_callback(void *data) {
+	if (session && !session->active)
+		return 0;
+	if (idle_inhibited) {
+		wl_event_source_timer_update(idle_action_source,
+									 config.idle_timeout * 1000);
+		return 0;
+	}
+	switch (config.idle_action) {
+	case IDLE_ACTION_SUSPEND:
+		spawn_shell(&(Arg){.v = "systemctl suspend"});
+		break;
+	case IDLE_ACTION_HIBERNATE:
+		spawn_shell(&(Arg){.v = "systemctl hibernate"});
+		break;
+	case IDLE_ACTION_OFF:
+	default:
+		idle_set_screens(true);
+		break;
+	}
+	return 0;
+}
+
 /* Fire one idle binding's action once its timeout elapses with no activity.
    Skips while the session is inactive or a client inhibits idle, re-arming in
    the inhibit case so it can still fire once the inhibit clears. */
@@ -6192,15 +6236,25 @@ int32_t idle_timer_callback(void *data) {
 	return 0;
 }
 
-/* Re-arm every idle timer to its full timeout; called on user activity. */
+/* Re-arm every idle timer to its full timeout; called on user activity.
+   Also wakes blanked screens and re-arms the built-in idle action. */
 void reset_idle_timers(void) {
+	if (idle_screen_off)
+		idle_set_screens(false);
 	for (int32_t i = 0; i < idle_timers_count; i++)
 		wl_event_source_timer_update(idle_timers[i].source,
 									 idle_timers[i].binding->timeout_ms);
+	if (idle_action_source)
+		wl_event_source_timer_update(idle_action_source,
+									 config.idle_timeout * 1000);
 }
 
 /* Tear down all idle timer event sources. */
 void destroy_idle_timers(void) {
+	if (idle_action_source) {
+		wl_event_source_remove(idle_action_source);
+		idle_action_source = NULL;
+	}
 	if (!idle_timers)
 		return;
 	for (int32_t i = 0; i < idle_timers_count; i++) {
@@ -6212,9 +6266,19 @@ void destroy_idle_timers(void) {
 	idle_timers_count = 0;
 }
 
-/* (Re)create one armed event-loop timer per configured idle binding. */
+/* (Re)create armed event-loop timers: the built-in idle action plus one per
+   configured idlebind. Called at setup and on config hot-reload. */
 void setup_idle_timers(void) {
 	destroy_idle_timers();
+
+	if (config.idle_timeout > 0) {
+		idle_action_source =
+			wl_event_loop_add_timer(event_loop, idle_action_callback, NULL);
+		if (idle_action_source)
+			wl_event_source_timer_update(idle_action_source,
+										 config.idle_timeout * 1000);
+	}
+
 	if (config.idle_bindings_count <= 0)
 		return;
 	idle_timers = ecalloc(config.idle_bindings_count, sizeof(*idle_timers));
