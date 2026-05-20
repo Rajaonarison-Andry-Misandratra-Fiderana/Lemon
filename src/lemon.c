@@ -2146,9 +2146,9 @@ int32_t ongesture(struct wlr_pointer_swipe_end_event *event) {
 /* Run a swayosd-client command for the live 4-finger OSD control. */
 static void osd_emit(const char *cmd) { spawn_shell(&(Arg){.v = (void *)cmd}); }
 
-/* Drive volume/brightness continuously from a 4-finger swipe, emitting one
-   small swayosd step per touchpad_4f_step of travel along the locked axis.
-   Returns true if the swipe was consumed for OSD control. */
+/* Drive volume continuously from a vertical 4-finger swipe, emitting one small
+   swayosd step per touchpad_4f_step of travel. Returns true if the swipe was
+   consumed for OSD control. */
 static bool swipe_osd_control(struct wlr_pointer_swipe_update_event *event) {
 	if (!config.touchpad_4f_osd || event->fingers != 4)
 		return false;
@@ -2160,30 +2160,18 @@ static bool swipe_osd_control(struct wlr_pointer_swipe_update_event *event) {
 			return true; /* still deciding axis; consume but emit nothing */
 	}
 
+	if (swipe_osd_axis != 1)
+		return true; /* horizontal 4-finger swipe: consume, no action */
+
 	double step = config.touchpad_4f_step;
-	if (swipe_osd_axis == 1) { /* vertical: up = louder */
-		swipe_osd_accum += event->dy;
-		while (swipe_osd_accum <= -step) {
-			osd_emit("swayosd-client --output-volume 2");
-			swipe_osd_accum += step;
-		}
-		while (swipe_osd_accum >= step) {
-			osd_emit("swayosd-client --output-volume -2");
-			swipe_osd_accum -= step;
-		}
-	} else { /* horizontal: right = brighter */
-		swipe_osd_accum += event->dx;
-		/* brightnessctl does the real change (reliable sysfs write); swayosd
-		   only shows the OSD (--brightness 0 = no delta), since swayosd's own
-		   brightness backend may not be able to write the backlight. */
-		while (swipe_osd_accum >= step) {
-			osd_emit("brightnessctl set 2%+ && swayosd-client --brightness 0");
-			swipe_osd_accum -= step;
-		}
-		while (swipe_osd_accum <= -step) {
-			osd_emit("brightnessctl set 2%- && swayosd-client --brightness 0");
-			swipe_osd_accum += step;
-		}
+	swipe_osd_accum += event->dy; /* vertical: up = louder */
+	while (swipe_osd_accum <= -step) {
+		osd_emit("swayosd-client --output-volume 2");
+		swipe_osd_accum += step;
+	}
+	while (swipe_osd_accum >= step) {
+		osd_emit("swayosd-client --output-volume -2");
+		swipe_osd_accum -= step;
 	}
 	return true;
 }
