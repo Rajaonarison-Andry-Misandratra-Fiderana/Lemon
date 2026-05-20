@@ -857,7 +857,10 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 			height = (int32_t)lround(c->animation.vis[3]);
 		}
 		animation_passed = settled ? 1.0 : 0.0;
-		factor = 1.0;
+		/* factor!=1.0 makes client_apply_clip scale the buffer to the animated
+		   box (smooth resize, correct overview thumbnails); on settle pass 1.0
+		   so the surface renders unscaled and pixel-crisp. */
+		factor = settled ? 1.0 : 0.5;
 	} else {
 		int32_t passed_time = frame_now_ms() - c->animation.time_started;
 		animation_passed =
