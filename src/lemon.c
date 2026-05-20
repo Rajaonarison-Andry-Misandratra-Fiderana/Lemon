@@ -934,6 +934,7 @@ static struct wlr_idle_inhibit_manager_v1 *idle_inhibit_mgr;
 static struct wlr_layer_shell_v1 *layer_shell;
 static struct wlr_output_manager_v1 *output_mgr;
 static struct wlr_virtual_keyboard_manager_v1 *virtual_keyboard_mgr;
+static struct wlr_screencopy_manager_v1 *screencopy_mgr;
 static struct wlr_keyboard_shortcuts_inhibit_manager_v1
 	*keyboard_shortcuts_inhibit;
 static struct wlr_virtual_pointer_manager_v1 *virtual_pointer_mgr;
@@ -4852,88 +4853,122 @@ static int battery_frame_throttle_callback(void *data) {
 	return 0;
 }
 
-LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
-	Monitor *m = wl_container_of(listener, m, frame);
+/* Decide whether m's scene output must be committed this frame. Commit when
+   the scene has pending damage, or when a legacy wlr_screencopy_v1 capture is
+   in flight: those frame requests do not reliably mark the vanilla wlroots
+   scene as needing a frame, so without this an idle screen would never satisfy
+   them. The modern ext-image-copy-capture path drives needs_frame itself. */
+static bool output_should_commit(Monitor *m) {
+	if (wlr_scene_output_needs_frame(m->scene_output))
+		return true;
+	if (screencopy_mgr && !wl_list_empty(&screencopy_mgr->frames))
+		return true;
+	return false;
+}
+
+/* draw every layer-shell surface on m; true if any wants another frame */
+static bool render_layer_surfaces(Monitor *m) {
+	LayerSurface *l = NULL, *tmpl = NULL;
+	bool more = false;
+	for (int32_t i = 0; i < LENGTH(m->layers); i++) {
+		wl_list_for_each_safe(l, tmpl, &m->layers[i], link) {
+			if (layer_draw_frame(l))
+				more = true;
+		}
+	}
+	return more;
+}
+
+/* drive fade-out animations for dying clients and layers; true if still animating */
+static bool render_fadeouts(void) {
 	Client *c = NULL, *tmp = NULL;
 	LayerSurface *l = NULL, *tmpl = NULL;
-	int32_t i;
-	struct wl_list *layer_list;
-	bool frame_allow_tearing = false;
+	bool more = false;
+	wl_list_for_each_safe(c, tmp, &fadeout_clients, fadeout_link) {
+		if (client_draw_fadeout_frame(c))
+			more = true;
+	}
+	wl_list_for_each_safe(l, tmpl, &fadeout_layers, fadeout_link) {
+		if (layer_draw_fadeout_frame(l))
+			more = true;
+	}
+	return more;
+}
+
+/* draw clients owned by m. Sets *skip when a no-animation configure
+   round-trip means the commit must be deferred this frame. Returns true
+   if any client wants another frame. */
+static bool render_clients(Monitor *m, bool *skip) {
+	Client *c = NULL, *tmp = NULL;
+	bool more = false;
+	*skip = false;
+	wl_list_for_each_safe(c, tmp, &clients, link) {
+		if (LEMON_LIKELY(c->mon != m))
+			continue;
+		if (client_draw_frame(c))
+			more = true;
+		if (!config.animations && !grabc && c->configure_serial) {
+			monitor_check_skip_frame_timeout(m);
+			*skip = true;
+			return more;
+		}
+	}
+	if (m->skiping_frame) {
+		monitor_stop_skip_frame_timer(m);
+	}
+	return more;
+}
+
+/* schedule the next output frame, honoring the on-battery throttle */
+static void schedule_next_frame(Monitor *m) {
+	if (on_battery && m->battery_frame_throttle) {
+		uint32_t now_ms = frame_now_ms();
+		uint32_t elapsed = now_ms - m->last_anim_schedule_ms;
+		if (elapsed < BATTERY_ANIM_INTERVAL_MS) {
+			wl_event_source_timer_update(m->battery_frame_throttle,
+										 BATTERY_ANIM_INTERVAL_MS - elapsed);
+			return;
+		}
+	}
+	m->last_anim_schedule_ms = frame_now_ms();
+	wlr_output_schedule_frame(m->wlr_output);
+}
+
+/* per-monitor render callback: draw all surfaces, commit, schedule next frame */
+LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
+	Monitor *m = wl_container_of(listener, m, frame);
 	struct timespec now;
 	bool need_more_frames = false;
+	bool skip = false;
 
-	if (LEMON_UNLIKELY(session && !session->active)) {
+	if (LEMON_UNLIKELY(session && !session->active))
 		return;
-	}
 
 	if (LEMON_UNLIKELY(!m->wlr_output->enabled || !allow_frame_scheduling))
 		return;
 
 	frame_clock_begin();
 
-	frame_allow_tearing = check_tearing_frame_allow(m);
+	bool frame_allow_tearing = check_tearing_frame_allow(m);
 
-	for (i = 0; i < LENGTH(m->layers); i++) {
-		layer_list = &m->layers[i];
-		wl_list_for_each_safe(l, tmpl, layer_list, link) {
-			need_more_frames = layer_draw_frame(l) || need_more_frames;
+	bool layers_more = render_layer_surfaces(m);
+	bool fadeouts_more = render_fadeouts();
+	bool clients_more = render_clients(m, &skip);
+	need_more_frames = layers_more || fadeouts_more || clients_more;
+
+	if (!skip) {
+		if (config.allow_tearing && frame_allow_tearing) {
+			apply_tear_state(m);
+		} else if (output_should_commit(m)) {
+			wlr_scene_output_commit(m->scene_output, NULL);
 		}
 	}
 
-	wl_list_for_each_safe(c, tmp, &fadeout_clients, fadeout_link) {
-		need_more_frames = client_draw_fadeout_frame(c) || need_more_frames;
-	}
-
-	wl_list_for_each_safe(l, tmpl, &fadeout_layers, fadeout_link) {
-		need_more_frames = layer_draw_fadeout_frame(l) || need_more_frames;
-	}
-
-	wl_list_for_each(c, &clients, link) {
-		if (LEMON_LIKELY(c->mon != m))
-			continue;
-		need_more_frames = client_draw_frame(c) || need_more_frames;
-		if (!config.animations && !grabc && c->configure_serial) {
-			monitor_check_skip_frame_timeout(m);
-			goto skip;
-		}
-	}
-
-	if (m->skiping_frame) {
-		monitor_stop_skip_frame_timer(m);
-	}
-
-	if (config.allow_tearing && frame_allow_tearing) {
-		apply_tear_state(m);
-	} else {
-		/* Always commit. The lazy short-circuit broke wlr_screencopy_v1
-		   captures (grim, slurp overlay) because screencopy frame
-		   requests do not always mark the scene output as needs_frame
-		   on the vanilla wlroots scene. */
-		wlr_scene_output_commit(m->scene_output, NULL);
-	}
-
-skip:
-	
 	frame_clock_now_timespec(&now);
 	wlr_scene_output_send_frame_done(m->scene_output, &now);
 
-	if (LEMON_UNLIKELY(need_more_frames && allow_frame_scheduling)) {
-		if (on_battery && m->battery_frame_throttle) {
-			uint32_t now_ms = frame_now_ms();
-			uint32_t elapsed = now_ms - m->last_anim_schedule_ms;
-			if (elapsed < BATTERY_ANIM_INTERVAL_MS) {
-				wl_event_source_timer_update(
-					m->battery_frame_throttle,
-					BATTERY_ANIM_INTERVAL_MS - elapsed);
-			} else {
-				m->last_anim_schedule_ms = now_ms;
-				wlr_output_schedule_frame(m->wlr_output);
-			}
-		} else {
-			m->last_anim_schedule_ms = frame_now_ms();
-			wlr_output_schedule_frame(m->wlr_output);
-		}
-	}
+	if (LEMON_UNLIKELY(need_more_frames && allow_frame_scheduling))
+		schedule_next_frame(m);
 
 	frame_clock_end();
 }
@@ -5813,7 +5848,7 @@ void setup(void) {
 
 	compositor = wlr_compositor_create(dpy, 6, drw);
 	wlr_export_dmabuf_manager_v1_create(dpy);
-	wlr_screencopy_manager_v1_create(dpy);
+	screencopy_mgr = wlr_screencopy_manager_v1_create(dpy);
 	wlr_ext_image_copy_capture_manager_v1_create(dpy, 1);
 	wlr_ext_output_image_capture_source_manager_v1_create(dpy, 1);
 	wlr_data_control_manager_v1_create(dpy);
