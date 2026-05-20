@@ -362,6 +362,11 @@ typedef struct {
 
 	int32_t tag_suspend_hidden;
 
+	/* Live 4-finger touchpad swipe: vertical = volume, horizontal = brightness,
+	   emitting swayosd steps continuously as the fingers move. */
+	int32_t touchpad_4f_osd;
+	int32_t touchpad_4f_step;
+
 	int32_t animation_spring;
 	double animation_spring_mass;
 	double animation_spring_tension;
@@ -1383,6 +1388,10 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->syncobj_enable = atoi(value);
 	} else if (strcmp(key, "tag_suspend_hidden") == 0) {
 		config->tag_suspend_hidden = atoi(value);
+	} else if (strcmp(key, "touchpad_4f_osd") == 0) {
+		config->touchpad_4f_osd = atoi(value);
+	} else if (strcmp(key, "touchpad_4f_step") == 0) {
+		config->touchpad_4f_step = atoi(value);
 	} else if (strcmp(key, "animation_spring") == 0) {
 		config->animation_spring = atoi(value);
 	} else if (strcmp(key, "animation_spring_mass") == 0) {
@@ -3255,6 +3264,8 @@ void override_config(void) {
 	config.focus_qos = CLAMP_INT(config.focus_qos, 0, 1);
 	config.focus_qos_bg_nice = CLAMP_INT(config.focus_qos_bg_nice, 1, 19);
 	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);
+	config.touchpad_4f_osd = CLAMP_INT(config.touchpad_4f_osd, 0, 1);
+	config.touchpad_4f_step = CLAMP_INT(config.touchpad_4f_step, 5, 300);
 	config.animation_spring = CLAMP_INT(config.animation_spring, 0, 1);
 	if (config.animation_spring_mass < 0.1)
 		config.animation_spring_mass = 0.1;
@@ -3427,6 +3438,8 @@ void set_value_default() {
 	config.focus_qos = 0;
 	config.focus_qos_bg_nice = 10;
 	config.tag_suspend_hidden = 0;
+	config.touchpad_4f_osd = 0;
+	config.touchpad_4f_step = 25;
 	config.animation_spring = 1;
 	config.animation_spring_mass = 1.0;
 	/* Slightly slow, smooth, near-critically damped (no bounce). c_crit for
