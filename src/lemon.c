@@ -6,6 +6,7 @@
 #include <getopt.h>
 #include <libinput.h>
 #include <sys/resource.h>
+#include <sys/syscall.h>
 #include <limits.h>
 #include <linux/input-event-codes.h>
 #include <wlr/types/wlr_scene.h>
@@ -3685,6 +3686,54 @@ static void recompute_render_tiers(void) {
 	}
 }
 
+/* I/O priority classes for ioprio_set (no glibc wrapper exists). */
+#ifndef IOPRIO_WHO_PGRP
+#define IOPRIO_WHO_PGRP 2
+#endif
+#define IOPRIO_CLASS_SHIFT 13
+#define IOPRIO_CLASS_BE 2
+#define IOPRIO_CLASS_IDLE 3
+#define IOPRIO_PRIO_VALUE(klass, data) (((klass) << IOPRIO_CLASS_SHIFT) | (data))
+
+/* syscall() is not exposed under _POSIX_C_SOURCE; declare it for ioprio_set. */
+extern long syscall(long number, ...);
+
+static bool qos_warned = false;
+
+/* Apply CPU nice + I/O class to a client's process group (focus QoS).
+   Demotion always succeeds; raising priority needs CAP_SYS_NICE, so a single
+   EPERM is logged once and otherwise ignored (background demotion still wins). */
+static void qos_apply(Client *c, int32_t nice_val, int32_t io_class) {
+	if (!config.focus_qos || !c || c->iskilling)
+		return;
+	pid_t pid = client_get_pid(c);
+	if (pid <= 0)
+		return;
+	pid_t pgid = getpgid(pid);
+	if (pgid <= 0)
+		pgid = pid;
+
+	errno = 0;
+	if (setpriority(PRIO_PGRP, pgid, nice_val) != 0 && errno == EPERM &&
+		!qos_warned) {
+		wlr_log(WLR_INFO,
+				"focus_qos: raising priority needs CAP_SYS_NICE "
+				"(setcap cap_sys_nice+ep on the lemon binary); background "
+				"demotion still applies without it");
+		qos_warned = true;
+	}
+	syscall(SYS_ioprio_set, IOPRIO_WHO_PGRP, pgid,
+			IOPRIO_PRIO_VALUE(io_class, 4));
+}
+
+/* Give a client foreground QoS: normal nice and best-effort I/O. */
+static void qos_promote(Client *c) { qos_apply(c, 0, IOPRIO_CLASS_BE); }
+
+/* Throttle a backgrounded client: higher nice and idle-class I/O. */
+static void qos_demote(Client *c) {
+	qos_apply(c, config.focus_qos_bg_nice, IOPRIO_CLASS_IDLE);
+}
+
 void focusclient(Client *c, int32_t lift) {
 
 	Client *last_focus_client = NULL;
@@ -3737,8 +3786,10 @@ void focusclient(Client *c, int32_t lift) {
 			last_focus_client != c) {
 			last_focus_client->isfocusing = false;
 			client_set_unfocused_opacity_animation(last_focus_client);
+			qos_demote(last_focus_client);
 		}
 
+		qos_promote(c);
 		client_set_focused_opacity_animation(c);
 
 		if (c && selmon->prevsel &&

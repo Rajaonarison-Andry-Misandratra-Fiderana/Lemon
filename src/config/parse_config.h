@@ -357,6 +357,9 @@ typedef struct {
 	int32_t idle_timeout;
 	int32_t idle_action;
 
+	int32_t focus_qos;
+	int32_t focus_qos_bg_nice;
+
 	ConfigEnv **env;
 	int32_t env_count;
 
@@ -1368,6 +1371,10 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->xwayland_persistence = atoi(value);
 	} else if (strcmp(key, "syncobj_enable") == 0) {
 		config->syncobj_enable = atoi(value);
+	} else if (strcmp(key, "focus_qos") == 0) {
+		config->focus_qos = atoi(value);
+	} else if (strcmp(key, "focus_qos_bg_nice") == 0) {
+		config->focus_qos_bg_nice = atoi(value);
 	} else if (strcmp(key, "idle_timeout") == 0) {
 		config->idle_timeout = atoi(value);
 	} else if (strcmp(key, "idle_action") == 0) {
@@ -3221,6 +3228,8 @@ void override_config(void) {
 		config.idle_timeout = 0;
 	config.idle_action = CLAMP_INT(config.idle_action, IDLE_ACTION_OFF,
 								   IDLE_ACTION_HIBERNATE);
+	config.focus_qos = CLAMP_INT(config.focus_qos, 0, 1);
+	config.focus_qos_bg_nice = CLAMP_INT(config.focus_qos_bg_nice, 1, 19);
 	config.drag_tile_refresh_interval =
 		CLAMP_FLOAT(config.drag_tile_refresh_interval, 1.0f, 16.0f);
 	config.drag_floating_refresh_interval =
@@ -3377,6 +3386,8 @@ void set_value_default() {
 	config.syncobj_enable = 1;
 	config.idle_timeout = 300;
 	config.idle_action = IDLE_ACTION_OFF;
+	config.focus_qos = 0;
+	config.focus_qos_bg_nice = 10;
 	config.drag_tile_refresh_interval = 8.0f;
 	config.drag_floating_refresh_interval = 8.0f;
 	config.allow_tearing = TEARING_DISABLED;
