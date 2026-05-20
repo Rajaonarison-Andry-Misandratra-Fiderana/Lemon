@@ -805,11 +805,12 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 
 	int32_t type = c->animation.action == NONE ? MOVE : c->animation.action;
 
-	/* Spring physics drives plain geometry moves/resizes/tiling. Open, close
-	   and tag transitions keep the curve model (they need a 0..1 progress for
-	   their fade/zoom/slide and offset logic). */
-	bool use_spring = config.animation_spring && !c->animation.tagining &&
-					  !c->animation.tagouting && type != OPEN && type != CLOSE;
+	/* Spring physics drives every geometry transition: moves, resizes,
+	   tiling, and tag (workspace) slide-in/out, which are all pure position
+	   changes. Only open/close keep the curve model, because their zoom/fade
+	   effect needs a 0..1 progress the spring does not produce. */
+	bool use_spring =
+		config.animation_spring && type != OPEN && type != CLOSE;
 
 	double animation_passed;
 	double factor;
