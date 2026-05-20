@@ -314,6 +314,15 @@ struct dwl_animation {
 	struct wlr_box initial;
 	struct wlr_box current;
 	int32_t action;
+
+	/* Spring-physics geometry state (move/resize/tile). vis/vel are sub-pixel
+	   x,y,width,height. Preserved across retargets so the animation is fully
+	   interruptible. spring_init seeds vis from initial on a fresh start;
+	   last_tick_ms gives the integrator its dt. */
+	double vis[4];
+	double vel[4];
+	bool spring_init;
+	uint32_t last_tick_ms;
 };
 
 struct dwl_opacity_animation {
@@ -1109,6 +1118,7 @@ void request_fresh_all_monitors(void);
 void request_fresh_for_client(Client *c);
 static void recompute_render_tiers(void);
 
+#include "animation/spring.h"
 #include "animation/client.h"
 #include "animation/common.h"
 #include "animation/layer.h"

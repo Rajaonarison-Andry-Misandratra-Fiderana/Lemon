@@ -799,28 +799,82 @@ LEMON_HOT void fadeout_client_animation_next_tick(Client *c) {
 
 /* Advance one frame of a client's running geometry animation and finalize when complete. */
 LEMON_HOT void client_animation_next_tick(Client *c) {
-	int32_t passed_time = frame_now_ms() - c->animation.time_started;
-	double animation_passed =
-		c->animation.duration
-			? (double)passed_time / (double)c->animation.duration
-			: 1.0;
-
-	int32_t type = c->animation.action == NONE ? MOVE : c->animation.action;
-	double factor = find_animation_curve_at(animation_passed, type);
-
 	Client *pointer_c = NULL;
 	double sx = 0, sy = 0;
 	struct wlr_surface *surface = NULL;
 
-	int32_t width = c->animation.initial.width +
-					(c->current.width - c->animation.initial.width) * factor;
-	int32_t height = c->animation.initial.height +
-					 (c->current.height - c->animation.initial.height) * factor;
+	int32_t type = c->animation.action == NONE ? MOVE : c->animation.action;
 
-	int32_t x = c->animation.initial.x +
-				(c->current.x - c->animation.initial.x) * factor;
-	int32_t y = c->animation.initial.y +
-				(c->current.y - c->animation.initial.y) * factor;
+	/* Spring physics drives plain geometry moves/resizes/tiling. Open, close
+	   and tag transitions keep the curve model (they need a 0..1 progress for
+	   their fade/zoom/slide and offset logic). */
+	bool use_spring = config.animation_spring && !c->animation.tagining &&
+					  !c->animation.tagouting && type != OPEN && type != CLOSE;
+
+	double animation_passed;
+	double factor;
+	int32_t x, y, width, height;
+
+	if (use_spring) {
+		uint32_t now = frame_now_ms();
+		double dt = c->animation.last_tick_ms
+						? (double)(now - c->animation.last_tick_ms) / 1000.0
+						: 1.0 / 60.0;
+		if (dt > SPRING_MAX_DT)
+			dt = SPRING_MAX_DT;
+		if (dt <= 0.0)
+			dt = 1.0 / 1000.0;
+		c->animation.last_tick_ms = now;
+
+		if (!c->animation.spring_init) {
+			c->animation.vis[0] = c->animation.initial.x;
+			c->animation.vis[1] = c->animation.initial.y;
+			c->animation.vis[2] = c->animation.initial.width;
+			c->animation.vis[3] = c->animation.initial.height;
+			c->animation.vel[0] = c->animation.vel[1] = 0.0;
+			c->animation.vel[2] = c->animation.vel[3] = 0.0;
+			c->animation.spring_init = true;
+		}
+
+		const double target[4] = {
+			(double)c->current.x, (double)c->current.y,
+			(double)c->current.width, (double)c->current.height,
+		};
+		bool settled = spring_box_step(
+			c->animation.vis, c->animation.vel, target, dt,
+			config.animation_spring_mass, config.animation_spring_tension,
+			config.animation_spring_friction);
+
+		if (settled) {
+			x = c->current.x;
+			y = c->current.y;
+			width = c->current.width;
+			height = c->current.height;
+		} else {
+			x = (int32_t)lround(c->animation.vis[0]);
+			y = (int32_t)lround(c->animation.vis[1]);
+			width = (int32_t)lround(c->animation.vis[2]);
+			height = (int32_t)lround(c->animation.vis[3]);
+		}
+		animation_passed = settled ? 1.0 : 0.0;
+		factor = 1.0;
+	} else {
+		int32_t passed_time = frame_now_ms() - c->animation.time_started;
+		animation_passed =
+			c->animation.duration
+				? (double)passed_time / (double)c->animation.duration
+				: 1.0;
+		factor = find_animation_curve_at(animation_passed, type);
+
+		width = c->animation.initial.width +
+				(c->current.width - c->animation.initial.width) * factor;
+		height = c->animation.initial.height +
+				 (c->current.height - c->animation.initial.height) * factor;
+		x = c->animation.initial.x +
+			(c->current.x - c->animation.initial.x) * factor;
+		y = c->animation.initial.y +
+			(c->current.y - c->animation.initial.y) * factor;
+	}
 
 	wlr_scene_node_set_position(&c->scene->node, x, y);
 	c->animation.current = (struct wlr_box){
@@ -840,6 +894,8 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 
 		c->animation.tagining = false;
 		c->animation.running = false;
+		c->animation.spring_init = false;
+		c->animation.last_tick_ms = 0;
 
 		if (c->animation.tagouting) {
 			c->animation.tagouting = false;
@@ -946,6 +1002,11 @@ void client_commit(Client *c) {
 	if (c->animation.should_animate) {
 		if (!c->animation.running) {
 			c->animation.current = c->animainit_geom;
+			/* Fresh start: re-seed the spring from the initial geometry. While
+			   already running, vis/vel are kept so a retarget mid-flight bends
+			   the path instead of jumping (fully interruptible). */
+			c->animation.spring_init = false;
+			c->animation.last_tick_ms = 0;
 		}
 
 		c->animation.initial = c->animainit_geom;
