@@ -6342,6 +6342,7 @@ int32_t keep_idle_inhibit(void *data) {
 
 	if (seat && idle_notifier) {
 		wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+		reset_idle_timers();
 		wl_event_source_timer_update(keep_idle_inhibit_source, 1000);
 	}
 	return 1;
