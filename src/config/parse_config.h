@@ -3418,7 +3418,9 @@ void set_value_default() {
 	config.tag_suspend_hidden = 0;
 	config.animation_spring = 1;
 	config.animation_spring_mass = 1.0;
-	config.animation_spring_tension = 180.0;
+	/* Slightly slow, smooth, near-critically damped (no bounce). c_crit for
+	   k=120,m=1 is ~21.9, so friction 22 settles cleanly with no overshoot. */
+	config.animation_spring_tension = 120.0;
 	config.animation_spring_friction = 22.0;
 	config.drag_tile_refresh_interval = 8.0f;
 	config.drag_floating_refresh_interval = 8.0f;
