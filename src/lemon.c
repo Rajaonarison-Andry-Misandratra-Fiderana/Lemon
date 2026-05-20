@@ -5839,9 +5839,18 @@ void setup(void) {
 			scene, wlr_linux_dmabuf_v1_create_with_renderer(dpy, 4, drw));
 	}
 
-	if (config.syncobj_enable && (drm_fd = wlr_renderer_get_drm_fd(drw)) >= 0 &&
-		drw->features.timeline && backend->features.timeline)
-		wlr_linux_drm_syncobj_manager_v1_create(dpy, 1, drm_fd);
+	if (config.syncobj_enable) {
+		if ((drm_fd = wlr_renderer_get_drm_fd(drw)) >= 0 &&
+			drw->features.timeline && backend->features.timeline) {
+			wlr_linux_drm_syncobj_manager_v1_create(dpy, 1, drm_fd);
+			wlr_log(WLR_INFO,
+					"explicit sync (linux-drm-syncobj-v1) enabled");
+		} else {
+			wlr_log(WLR_INFO,
+					"explicit sync requested but unsupported by "
+					"renderer/backend; using implicit sync");
+		}
+	}
 
 	if (!(alloc = wlr_allocator_autocreate(backend, drw)))
 		die("couldn't create allocator");
