@@ -360,6 +360,8 @@ typedef struct {
 	int32_t focus_qos;
 	int32_t focus_qos_bg_nice;
 
+	int32_t tag_suspend_hidden;
+
 	int32_t animation_spring;
 	double animation_spring_mass;
 	double animation_spring_tension;
@@ -1376,6 +1378,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->xwayland_persistence = atoi(value);
 	} else if (strcmp(key, "syncobj_enable") == 0) {
 		config->syncobj_enable = atoi(value);
+	} else if (strcmp(key, "tag_suspend_hidden") == 0) {
+		config->tag_suspend_hidden = atoi(value);
 	} else if (strcmp(key, "animation_spring") == 0) {
 		config->animation_spring = atoi(value);
 	} else if (strcmp(key, "animation_spring_mass") == 0) {
@@ -3243,6 +3247,7 @@ void override_config(void) {
 								   IDLE_ACTION_HIBERNATE);
 	config.focus_qos = CLAMP_INT(config.focus_qos, 0, 1);
 	config.focus_qos_bg_nice = CLAMP_INT(config.focus_qos_bg_nice, 1, 19);
+	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);
 	config.animation_spring = CLAMP_INT(config.animation_spring, 0, 1);
 	if (config.animation_spring_mass < 0.1)
 		config.animation_spring_mass = 0.1;
@@ -3410,6 +3415,7 @@ void set_value_default() {
 	config.idle_action = IDLE_ACTION_OFF;
 	config.focus_qos = 0;
 	config.focus_qos_bg_nice = 10;
+	config.tag_suspend_hidden = 0;
 	config.animation_spring = 1;
 	config.animation_spring_mass = 1.0;
 	config.animation_spring_tension = 180.0;

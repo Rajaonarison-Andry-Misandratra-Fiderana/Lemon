@@ -116,6 +116,7 @@ void set_arrange_hidden(Monitor *m, Client *c, bool want_animation) {
 		set_tagout_animation(m, c);
 	} else {
 		wlr_scene_node_set_enabled(&c->scene->node, false);
-		client_set_suspended(c, true);
+		if (config.tag_suspend_hidden)
+			client_set_suspended(c, true);
 	}
 }

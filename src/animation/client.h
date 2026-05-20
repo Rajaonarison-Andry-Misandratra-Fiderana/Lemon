@@ -900,7 +900,8 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 		if (c->animation.tagouting) {
 			c->animation.tagouting = false;
 			wlr_scene_node_set_enabled(&c->scene->node, false);
-			client_set_suspended(c, true);
+			if (config.tag_suspend_hidden)
+				client_set_suspended(c, true);
 			c->animation.tagouted = true;
 			c->animation.current = c->geom;
 		}
