@@ -5031,7 +5031,7 @@ void exchange_two_client(Client *c1, Client *c2) {
 	struct TagScrollerState *st1 = NULL;
 	struct TagScrollerState *st2 = NULL;
 
-	if (c1 == NULL || c2 == NULL ||
+	if (c1 == NULL || c2 == NULL || c1->mon == NULL || c2->mon == NULL ||
 		(!config.exchange_cross_monitor && c1->mon != c2->mon)) {
 		return;
 	}
