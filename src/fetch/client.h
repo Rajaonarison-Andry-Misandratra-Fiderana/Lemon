@@ -162,14 +162,33 @@ Client *center_tiled_select(Monitor *m) {
 	}
 	return target_c;
 }
+/* Reusable scratch buffer for direction search. Main-loop only, not thread-safe. */
+static Client **dir_client_buf = NULL;
+static int32_t dir_client_cap = 0;
+
+/* Grow dir_client_buf to hold at least n entries. Returns false on OOM. */
+static bool dir_client_buf_reserve(int32_t n) {
+	if (n <= dir_client_cap)
+		return true;
+	int32_t new_cap = dir_client_cap ? dir_client_cap * 2 : 16;
+	if (new_cap < n)
+		new_cap = n;
+	Client **grown = realloc(dir_client_buf, new_cap * sizeof(Client *));
+	if (!grown)
+		return false;
+	dir_client_buf = grown;
+	dir_client_cap = new_cap;
+	return true;
+}
+
 /* Find the nearest client in the given direction (up/down/left/right) from tc. */
 Client *find_client_by_direction(Client *tc, const Arg *arg, bool findfloating,
 								 bool ignore_align) {
 	Client *c = NULL;
-	Client **tempClients = NULL; // 初始化为 NULL
+	Client **tempClients = NULL;
 	int32_t last = -1;
 
-	// 第一次遍历，计算客户端数量
+	/* First pass: count matching clients. */
 	wl_list_for_each(c, &clients, link) {
 		if (c && (findfloating || !c->isfloating) && !c->isunglobal &&
 			(config.focus_cross_monitor || c->mon == tc->mon) &&
@@ -179,17 +198,15 @@ Client *find_client_by_direction(Client *tc, const Arg *arg, bool findfloating,
 	}
 
 	if (last < 0) {
-		return NULL; // 没有符合条件的客户端
+		return NULL; /* no matching clients */
 	}
 
-	// 动态分配内存
-	tempClients = malloc((last + 1) * sizeof(Client *));
-	if (!tempClients) {
-		// 处理内存分配失败的情况
-		return NULL;
+	if (!dir_client_buf_reserve(last + 1)) {
+		return NULL; /* OOM */
 	}
+	tempClients = dir_client_buf;
 
-	// 第二次遍历，填充 tempClients
+	/* Second pass: fill tempClients. */
 	last = -1;
 	wl_list_for_each(c, &clients, link) {
 		if (c && (findfloating || !c->isfloating) && !c->isunglobal &&
@@ -442,7 +459,7 @@ Client *find_client_by_direction(Client *tc, const Arg *arg, bool findfloating,
 		break;
 	}
 
-	free(tempClients); // 释放内存
+	/* buffer is reused across calls; no free here */
 	if (tempSameMonitorFocusClients) {
 		return tempSameMonitorFocusClients;
 	} else {
