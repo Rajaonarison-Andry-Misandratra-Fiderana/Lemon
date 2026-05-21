@@ -921,8 +921,11 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 		factor = settled ? 1.0 : 0.5;
 
 		/* Kinetic motion blur: fade proportional to speed while moving, restore
-		   the client's resting opacity on settle (perfectly crisp). */
-		if (config.animation_motion_blur) {
+		   the client's resting opacity on settle (perfectly crisp). Skipped for
+		   tag (workspace) slides — they travel far and fast, so the opacity dip
+		   then recovery reads as an unwanted flash. */
+		if (config.animation_motion_blur && !c->animation.tagining &&
+			!c->animation.tagouting) {
 			if (settled) {
 				client_set_opacity(c, (selmon && selmon->sel == c)
 										   ? config.focused_opacity
