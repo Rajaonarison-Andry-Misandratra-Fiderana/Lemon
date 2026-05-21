@@ -361,6 +361,10 @@ typedef struct {
 
 	int32_t idle_timeout;
 	int32_t idle_action;
+	/* Shorter idle timeout used while on battery (seconds). 0 = reuse
+	   idle_timeout on battery too. Lets the screen blank/suspend sooner
+	   unplugged — the panel is the single biggest power draw. */
+	int32_t idle_timeout_battery;
 	/* Smooth pre-idle dimming: lead seconds before idle_timeout, spring the
 	   backlight down to floor %, snap back elastically on any input. */
 	int32_t pre_idle_dim;
@@ -379,6 +383,14 @@ typedef struct {
 	/* Log per-frame render time when it exceeds the refresh budget, plus
 	   direct-scanout transitions. Diagnostic only, off by default. */
 	int32_t debug_frametime;
+
+	/* Aggressive on-battery power savings. battery_fps caps the animation
+	   frame rate while unplugged (default 60; lower = fewer GPU wakeups).
+	   battery_timer_slack_ms widens the kernel timer slack on battery so the
+	   scheduler coalesces wakeups and the CPU reaches deeper C-states
+	   (default 50 ms; 0 = leave the default ~50 us slack). */
+	int32_t battery_fps;
+	int32_t battery_timer_slack_ms;
 
 	/* Vertical-scroller top outer gap override. -1 = center the window in the
 	   usable area (default); >=0 = anchor it that many px below the top
@@ -1463,6 +1475,12 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->pre_idle_dim_floor = atoi(value);
 	} else if (strcmp(key, "idle_timeout") == 0) {
 		config->idle_timeout = atoi(value);
+	} else if (strcmp(key, "idle_timeout_battery") == 0) {
+		config->idle_timeout_battery = atoi(value);
+	} else if (strcmp(key, "battery_fps") == 0) {
+		config->battery_fps = atoi(value);
+	} else if (strcmp(key, "battery_timer_slack_ms") == 0) {
+		config->battery_timer_slack_ms = atoi(value);
 	} else if (strcmp(key, "idle_action") == 0) {
 		if (strcmp(value, "suspend") == 0)
 			config->idle_action = IDLE_ACTION_SUSPEND;
@@ -3315,6 +3333,11 @@ void override_config(void) {
 	config.syncobj_enable = CLAMP_INT(config.syncobj_enable, 0, 1);
 	if (config.idle_timeout < 0)
 		config.idle_timeout = 0;
+	if (config.idle_timeout_battery < 0)
+		config.idle_timeout_battery = 0;
+	config.battery_fps = CLAMP_INT(config.battery_fps, 1, 240);
+	config.battery_timer_slack_ms =
+		CLAMP_INT(config.battery_timer_slack_ms, 0, 1000);
 	config.idle_action = CLAMP_INT(config.idle_action, IDLE_ACTION_OFF,
 								   IDLE_ACTION_HIBERNATE);
 	config.pre_idle_dim = CLAMP_INT(config.pre_idle_dim, 0, 1);
@@ -3506,6 +3529,9 @@ void set_value_default() {
 	config.xwayland_persistence = 1;
 	config.syncobj_enable = 1;
 	config.idle_timeout = 300;
+	config.idle_timeout_battery = 0;
+	config.battery_fps = 60;
+	config.battery_timer_slack_ms = 50;
 	config.idle_action = IDLE_ACTION_OFF;
 	config.pre_idle_dim = 0;
 	config.pre_idle_dim_lead = 30;

@@ -19,6 +19,7 @@
 #include <sched.h>
 #include <malloc.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -4988,12 +4989,28 @@ static bool detect_on_battery(void) {
 	return !ac_online;
 }
 
-/* Re-read AC state periodically; reschedule self. Also nudges glibc to
-   release freed heap pages back to the kernel — long compositor sessions
-   accumulate freed-but-resident memory otherwise. */
+/* Widen the kernel timer slack on battery so the scheduler coalesces wakeups
+   and the CPU reaches deeper C-states; restore the tight default on AC. */
+static void apply_battery_timer_slack(bool battery) {
+	unsigned long ns = battery && config.battery_timer_slack_ms > 0
+						   ? (unsigned long)config.battery_timer_slack_ms * 1000000UL
+						   : 50000UL; /* kernel default ~50 us */
+	prctl(PR_SET_TIMERSLACK, ns, 0, 0, 0);
+}
+
+/* Re-read AC state periodically; reschedule self. On an AC<->battery
+   transition, widen/restore the timer slack and re-arm idle timers so the
+   battery idle timeout takes effect immediately. Also nudges glibc to release
+   freed heap pages back to the kernel — long sessions accumulate freed-but-
+   resident memory otherwise. */
 static int battery_poll_callback(void *data) {
 	(void)data;
+	bool was_on_battery = on_battery;
 	on_battery = detect_on_battery();
+	if (on_battery != was_on_battery) {
+		apply_battery_timer_slack(on_battery);
+		reset_idle_timers();
+	}
 	malloc_trim(0);
 	wl_event_source_timer_update(battery_poll_source, 10000);
 	return 0;
@@ -5073,14 +5090,53 @@ static bool render_clients(Monitor *m, bool *skip) {
 	return more;
 }
 
+/* fade the overview dim backdrop toward its target; true if still fading */
+static bool render_overview_dim(Monitor *m) {
+	if (!m->ov_dim)
+		return false;
+
+	float target =
+		(m->isoverview && config.overview_dim) ? config.overview_dim_alpha : 0.0f;
+
+	uint32_t now = frame_now_ms();
+	uint32_t dt = now - m->ov_dim_last_ms;
+	m->ov_dim_last_ms = now;
+	if (dt > 50)
+		dt = 50; /* clamp after an idle gap so the fade never jumps */
+
+	if (m->ov_dim_cur != target) {
+		float step = (float)dt / 130.0f; /* ~130 ms fade */
+		if (m->ov_dim_cur < target)
+			m->ov_dim_cur = fminf(m->ov_dim_cur + step, target);
+		else
+			m->ov_dim_cur = fmaxf(m->ov_dim_cur - step, target);
+		if (fabsf(m->ov_dim_cur - target) < 0.004f)
+			m->ov_dim_cur = target;
+	}
+
+	bool visible = m->ov_dim_cur > 0.004f;
+	wlr_scene_node_set_enabled(&m->ov_dim->node, visible);
+	if (visible) {
+		wlr_scene_node_set_position(&m->ov_dim->node, m->m.x, m->m.y);
+		wlr_scene_rect_set_size(m->ov_dim, m->m.width, m->m.height);
+		wlr_scene_rect_set_color(m->ov_dim,
+								 (float[4]){0, 0, 0, m->ov_dim_cur});
+	}
+
+	return m->ov_dim_cur != target;
+}
+
 /* schedule the next output frame, honoring the on-battery throttle */
 static void schedule_next_frame(Monitor *m) {
 	if (on_battery && m->battery_frame_throttle) {
+		uint32_t interval = config.battery_fps > 0
+								? 1000u / (uint32_t)config.battery_fps
+								: BATTERY_ANIM_INTERVAL_MS;
 		uint32_t now_ms = frame_now_ms();
 		uint32_t elapsed = now_ms - m->last_anim_schedule_ms;
-		if (elapsed < BATTERY_ANIM_INTERVAL_MS) {
+		if (elapsed < interval) {
 			wl_event_source_timer_update(m->battery_frame_throttle,
-										 BATTERY_ANIM_INTERVAL_MS - elapsed);
+										 interval - elapsed);
 			return;
 		}
 	}
@@ -6147,6 +6203,7 @@ void setup(void) {
 												 hidecursor, cursor);
 
 	on_battery = detect_on_battery();
+	apply_battery_timer_slack(on_battery);
 	battery_poll_source = wl_event_loop_add_timer(
 		wl_display_get_event_loop(dpy), battery_poll_callback, NULL);
 	wl_event_source_timer_update(battery_poll_source, 10000);
@@ -6360,6 +6417,14 @@ static int32_t idle_timers_count = 0;
 static struct wl_event_source *idle_action_source = NULL;
 static bool idle_screen_off = false;
 
+/* Effective built-in idle timeout in ms: the shorter battery timeout when
+   unplugged and idle_timeout_battery is set, otherwise idle_timeout. */
+static int32_t idle_action_timeout_ms(void) {
+	if (on_battery && config.idle_timeout_battery > 0)
+		return config.idle_timeout_battery * 1000;
+	return config.idle_timeout * 1000;
+}
+
 /* DPMS: enable or disable every output. off=true blanks the screens. */
 void idle_set_screens(bool off) {
 	Monitor *m;
@@ -6382,7 +6447,7 @@ int32_t idle_action_callback(void *data) {
 		return 0;
 	if (idle_inhibited) {
 		wl_event_source_timer_update(idle_action_source,
-									 config.idle_timeout * 1000);
+									 idle_action_timeout_ms());
 		return 0;
 	}
 	switch (config.idle_action) {
@@ -6543,7 +6608,7 @@ void reset_idle_timers(void) {
 									 idle_timers[i].binding->timeout_ms);
 	if (idle_action_source)
 		wl_event_source_timer_update(idle_action_source,
-									 config.idle_timeout * 1000);
+									 idle_action_timeout_ms());
 }
 
 /* Tear down all idle timer event sources. */
@@ -6583,7 +6648,7 @@ void setup_idle_timers(void) {
 			wl_event_loop_add_timer(event_loop, idle_action_callback, NULL);
 		if (idle_action_source)
 			wl_event_source_timer_update(idle_action_source,
-										 config.idle_timeout * 1000);
+										 idle_action_timeout_ms());
 	}
 
 	/* Pre-idle dimming: a disarmed spring ticker plus a lead timer fired

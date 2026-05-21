@@ -231,7 +231,12 @@ void scene_buffer_apply_effect(struct wlr_scene_buffer *buffer, int32_t sx,
 	if (wlr_xdg_popup_try_from_wlr_surface(surface) != NULL)
 		return;
 
-	wlr_scene_buffer_set_corner_radius(buffer, config.border_radius,
+	/* A zero radius (not merely CORNER_LOCATION_NONE) keeps the buffer eligible
+	   for direct scanout — a fullscreen client bypasses GPU composition. */
+	int32_t radius = buffer_data->corner_location == CORNER_LOCATION_NONE
+						 ? 0
+						 : config.border_radius;
+	wlr_scene_buffer_set_corner_radius(buffer, radius,
 									   buffer_data->corner_location);
 }
 
