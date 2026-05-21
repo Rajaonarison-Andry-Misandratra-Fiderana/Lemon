@@ -262,6 +262,11 @@ typedef struct {
 	uint32_t ov_tab_mode;
 	int32_t overviewgappi;
 	int32_t overviewgappo;
+	int32_t overview_dim;
+	double overview_dim_alpha;
+	int32_t overview_borderpx;
+	double animation_spring_overview_tension;
+	double animation_spring_overview_friction;
 	uint32_t cursor_hide_timeout;
 
 	uint32_t axis_bind_apply_timeout;
@@ -374,6 +379,11 @@ typedef struct {
 	/* Log per-frame render time when it exceeds the refresh budget, plus
 	   direct-scanout transitions. Diagnostic only, off by default. */
 	int32_t debug_frametime;
+
+	/* Vertical-scroller top outer gap override. -1 = center the window in the
+	   usable area (default); >=0 = anchor it that many px below the top
+	   (e.g. 0 hugs a top bar, removing the extra top margin). */
+	int32_t scroller_top_gap;
 
 	/* Live 4-finger touchpad swipe: vertical = volume, horizontal = brightness,
 	   emitting swayosd steps continuously as the fingers move. */
@@ -1409,6 +1419,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->subpixel_rgb = atoi(value);
 	} else if (strcmp(key, "debug_frametime") == 0) {
 		config->debug_frametime = atoi(value);
+	} else if (strcmp(key, "scroller_top_gap") == 0) {
+		config->scroller_top_gap = atoi(value);
 	} else if (strcmp(key, "touchpad_4f_osd") == 0) {
 		config->touchpad_4f_osd = atoi(value);
 	} else if (strcmp(key, "touchpad_4f_step") == 0) {
@@ -1421,6 +1433,16 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->animation_spring_tension = atof(value);
 	} else if (strcmp(key, "animation_spring_friction") == 0) {
 		config->animation_spring_friction = atof(value);
+	} else if (strcmp(key, "overview_dim") == 0) {
+		config->overview_dim = atoi(value);
+	} else if (strcmp(key, "overview_dim_alpha") == 0) {
+		config->overview_dim_alpha = atof(value);
+	} else if (strcmp(key, "overview_borderpx") == 0) {
+		config->overview_borderpx = atoi(value);
+	} else if (strcmp(key, "animation_spring_overview_tension") == 0) {
+		config->animation_spring_overview_tension = atof(value);
+	} else if (strcmp(key, "animation_spring_overview_friction") == 0) {
+		config->animation_spring_overview_friction = atof(value);
 	} else if (strcmp(key, "animation_spring_tag_tension") == 0) {
 		config->animation_spring_tag_tension = atof(value);
 	} else if (strcmp(key, "animation_spring_tag_friction") == 0) {
@@ -3286,6 +3308,9 @@ void override_config(void) {
 	config.ov_tab_mode = CLAMP_INT(config.ov_tab_mode, 0, 1);
 	config.overviewgappi = CLAMP_INT(config.overviewgappi, 0, 1000);
 	config.overviewgappo = CLAMP_INT(config.overviewgappo, 0, 1000);
+	config.overview_dim = CLAMP_INT(config.overview_dim, 0, 1);
+	config.overview_dim_alpha = CLAMP_FLOAT(config.overview_dim_alpha, 0.0, 1.0);
+	config.overview_borderpx = CLAMP_INT(config.overview_borderpx, 0, 100);
 	config.xwayland_persistence = CLAMP_INT(config.xwayland_persistence, 0, 1);
 	config.syncobj_enable = CLAMP_INT(config.syncobj_enable, 0, 1);
 	if (config.idle_timeout < 0)
@@ -3300,6 +3325,8 @@ void override_config(void) {
 	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);
 	config.subpixel_rgb = CLAMP_INT(config.subpixel_rgb, 0, 1);
 	config.debug_frametime = CLAMP_INT(config.debug_frametime, 0, 1);
+	if (config.scroller_top_gap < -1)
+		config.scroller_top_gap = -1;
 	config.touchpad_4f_osd = CLAMP_INT(config.touchpad_4f_osd, 0, 1);
 	config.touchpad_4f_step = CLAMP_INT(config.touchpad_4f_step, 5, 300);
 	config.animation_spring = CLAMP_INT(config.animation_spring, 0, 1);
@@ -3315,6 +3342,10 @@ void override_config(void) {
 		config.animation_spring_tag_tension = 1.0;
 	if (config.animation_spring_tag_friction < 1.0)
 		config.animation_spring_tag_friction = 1.0;
+	if (config.animation_spring_overview_tension < 1.0)
+		config.animation_spring_overview_tension = 1.0;
+	if (config.animation_spring_overview_friction < 1.0)
+		config.animation_spring_overview_friction = 1.0;
 	config.animation_motion_blur = CLAMP_INT(config.animation_motion_blur, 0, 1);
 	if (config.animation_motion_blur_strength < 0.0)
 		config.animation_motion_blur_strength = 0.0;
@@ -3484,6 +3515,7 @@ void set_value_default() {
 	config.tag_suspend_hidden = 0;
 	config.subpixel_rgb = 0;
 	config.debug_frametime = 0;
+	config.scroller_top_gap = -1;
 	config.touchpad_4f_osd = 0;
 	config.touchpad_4f_step = 25;
 	config.animation_spring = 1;
@@ -3495,6 +3527,9 @@ void set_value_default() {
 	/* Faster than the global spring: k=200,c=28 ~= critical, snappy slide. */
 	config.animation_spring_tag_tension = 200.0;
 	config.animation_spring_tag_friction = 28.0;
+	/* Overview enter/exit: snappiest spring of all — fast, critically damped. */
+	config.animation_spring_overview_tension = 280.0;
+	config.animation_spring_overview_friction = 32.0;
 	config.animation_motion_blur = 0;
 	config.animation_motion_blur_strength = 0.3;
 	config.drag_tile_refresh_interval = 8.0f;
@@ -3515,6 +3550,9 @@ void set_value_default() {
 	config.borderpx = 4;
 	config.overviewgappi = 5;
 	config.overviewgappo = 30;
+	config.overview_dim = 1;
+	config.overview_dim_alpha = 0.55;
+	config.overview_borderpx = 6;
 	config.cursor_hide_timeout = 0;
 
 	config.warpcursor = 1;

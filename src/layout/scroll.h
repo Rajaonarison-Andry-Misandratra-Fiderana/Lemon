@@ -534,7 +534,10 @@ void vertical_scroller(Monitor *m) {
 		struct wlr_box target_geom;
 		target_geom.width = m->w.width - 2 * cur_gappoh;
 		target_geom.height = (m->w.height - 2 * cur_gappov) * single_proportion;
-		target_geom.y = m->w.y + (m->w.height - target_geom.height) / 2;
+		if (config.scroller_top_gap >= 0)
+			target_geom.y = m->w.y + config.scroller_top_gap;
+		else
+			target_geom.y = m->w.y + (m->w.height - target_geom.height) / 2;
 		target_geom.x = m->w.x + (m->w.width - target_geom.width) / 2;
 		vertical_check_scroller_root_inside_mon(head->client, &target_geom);
 		arrange_stack_vertical_node(head, target_geom, cur_gappih);
