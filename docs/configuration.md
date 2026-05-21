@@ -49,6 +49,8 @@ on save. Binds and rules accept comma-separated fields. The annotated example is
 | `animation_spring_friction` | float | Damping `c`. `c ≈ 2·√(k·m)` = no overshoot; lower = bounce. Clamped ≥1. |
 | `animation_spring_tag_tension` | float | Separate, usually faster tension for workspace switch. |
 | `animation_spring_tag_friction` | float | Damping for the tag spring. |
+| `animation_motion_blur` | 0/1 | Fade a window proportional to spring speed; crisp on settle. |
+| `animation_motion_blur_strength` | 0..0.9 | Max opacity drop at full speed. |
 
 ## Layout & Gaps
 
@@ -143,6 +145,9 @@ Fields: `name` (regex), `make`, `model`, `serial`, `width`, `height`, `refresh`,
 | `idle_action` | `off`/`suspend`/`hibernate` | What runs at timeout (`off`=DPMS blank). |
 | `idlebind` | `SECONDS,dispatch,args` | Native per-action idle timers (multiple). |
 | `idleinhibit_ignore_visible` | 0/1 | Honor idle inhibitors even when hidden. |
+| `pre_idle_dim` | 0/1 | Spring-dim the backlight before full idle. |
+| `pre_idle_dim_lead` | seconds | How long before `idle_timeout` dimming starts. |
+| `pre_idle_dim_floor` | 1..100 | Brightness % to dim down to (input springs it back). |
 
 ## Performance / QoS
 

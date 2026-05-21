@@ -73,7 +73,15 @@ swayidle process.
 An LRU `app_id → (w,h)` map persisted to disk lets the first configure for a
 known app be sent at the right size, skipping a resize round-trip on launch.
 
-## 9. Tuned, tiny build
+## 9. Memory discipline
+
+Lemon aims to stay around ~100 MB resident. glibc malloc is tuned at startup
+(`M_ARENA_MAX=2`, low trim/mmap thresholds) and `malloc_trim` runs periodically
+to hand freed pages back to the kernel — a long session doesn't bloat. It also
+advertises **single-pixel-buffer-v1**, so solid-color surfaces (backgrounds,
+borders) cost one pixel of bandwidth instead of a full-screen buffer.
+
+## 10. Tuned, tiny build
 
 Release builds use `-O3` plus opportunistic GCC IPA passes, section GC, and a
 fast-math island for the animation curve hot path; optional two-pass PGO and
