@@ -5935,6 +5935,13 @@ void setup(void) {
 	for (i = 0; i < LENGTH(sig); i++)
 		sigaction(sig[i], &sa, NULL);
 
+	wlr_log_init(config.log_level, NULL);
+
+	dpy = wl_display_create();
+	event_loop = wl_display_get_event_loop(dpy);
+
+	/* Reap SIGCHLD synchronously via signalfd on the now-ready event loop.
+	   Fall back to the legacy async handler if signalfd setup fails. */
 	if (setup_sigchld_signalfd() < 0) {
 		struct sigaction chld = {.sa_flags = SA_RESTART | SA_NOCLDSTOP,
 								 .sa_handler = handlesig};
@@ -5942,11 +5949,6 @@ void setup(void) {
 		sigaction(SIGCHLD, &chld, NULL);
 	}
 
-	wlr_log_init(config.log_level, NULL);
-
-	dpy = wl_display_create();
-	event_loop = wl_display_get_event_loop(dpy);
-	
 	if (!(backend = wlr_backend_autocreate(event_loop, &session)))
 		die("couldn't create backend");
 
