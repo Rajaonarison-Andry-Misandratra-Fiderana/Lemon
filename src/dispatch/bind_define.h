@@ -1789,6 +1789,9 @@ int32_t toggleoverview(const Arg *arg) {
 	}
 
 	selmon->isoverview ^= 1;
+	selmon->ov_dim_last_ms = get_now_in_ms();
+	if (selmon->wlr_output)
+		wlr_output_schedule_frame(selmon->wlr_output);
 	uint32_t target;
 	uint32_t visible_client_number = 0;
 

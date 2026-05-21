@@ -893,12 +893,15 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 			(double)c->current.x, (double)c->current.y,
 			(double)c->current.width, (double)c->current.height,
 		};
-		/* Tag (workspace) slides use their own, usually faster, spring. */
+		/* Overview enter/exit gets the snappiest spring; tag (workspace)
+		   slides their own faster one; everything else the default. */
 		bool is_tag = c->animation.tagining || c->animation.tagouting;
-		double k = is_tag ? config.animation_spring_tag_tension
-						  : config.animation_spring_tension;
-		double fr = is_tag ? config.animation_spring_tag_friction
-						   : config.animation_spring_friction;
+		double k = c->ov_anim ? config.animation_spring_overview_tension
+				   : is_tag	? config.animation_spring_tag_tension
+							: config.animation_spring_tension;
+		double fr = c->ov_anim ? config.animation_spring_overview_friction
+				   : is_tag	 ? config.animation_spring_tag_friction
+							 : config.animation_spring_friction;
 		bool settled = spring_box_step(c->animation.vis, c->animation.vel,
 									   target, dt, config.animation_spring_mass,
 									   k, fr);
@@ -975,6 +978,7 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 		c->animation.action = MOVE;
 
 		c->animation.tagining = false;
+		c->ov_anim = false;
 		c->animation.running = false;
 		c->animation.spring_init = false;
 		c->animation.last_tick_ms = 0;

@@ -430,6 +430,7 @@ struct Client {
 	int32_t isnamedscratchpad;
 	bool is_pending_open_animation;
 	bool is_restoring_from_ov;
+	bool ov_anim;
 	float scroller_proportion;
 	float stack_proportion;
 	float old_stack_proportion;
@@ -593,6 +594,9 @@ struct Monitor {
 	uint32_t ovbk_prev_tagset;
 	Client *sel, *prevsel;
 	int32_t isoverview;
+	struct wlr_scene_rect *ov_dim;
+	float ov_dim_cur;
+	uint32_t ov_dim_last_ms;
 	int32_t is_in_hotarea;
 	int32_t asleep;
 	uint32_t visible_clients;
@@ -2618,6 +2622,10 @@ void cleanupmon(struct wl_listener *listener, void *data) {
 		destroylocksurface(&m->destroy_lock_surface, NULL);
 	m->wlr_output->data = NULL;
 	wlr_output_layout_remove(output_layout, m->wlr_output);
+	if (m->ov_dim) {
+		wlr_scene_node_destroy(&m->ov_dim->node);
+		m->ov_dim = NULL;
+	}
 	wlr_scene_output_destroy(m->scene_output);
 
 	closemon(m);
@@ -3355,6 +3363,15 @@ void createmon(struct wl_listener *listener, void *data) {
 	parse_tagrule(m);
 
 	m->scene_output = wlr_scene_output_create(scene, wlr_output);
+
+	/* Overview dim backdrop: a black rect sitting just under the tiled
+	   clients, faded in while this monitor is in overview. */
+	m->ov_dim = wlr_scene_rect_create(&scene->tree, 0, 0,
+									  (float[4]){0, 0, 0, 0});
+	wlr_scene_node_place_below(&m->ov_dim->node, &layers[LyrTile]->node);
+	wlr_scene_node_set_enabled(&m->ov_dim->node, false);
+	m->ov_dim_cur = 0.0f;
+
 	if (m->m.x == INT32_MAX || m->m.y == INT32_MAX)
 		wlr_output_layout_add_auto(output_layout, wlr_output);
 	else
@@ -4482,6 +4499,12 @@ mapnotify(struct wl_listener *listener, void *data) {
 	c->is_pending_open_animation = true;
 	resize(c, c->geom, 0);
 	printstatus();
+
+	/* Under the vertical scroller, a freshly opened window gets maximize-to-screen
+	   toggled on it — done after the trailing resize so it isn't reverted. */
+	if (!c->isfloating && c->mon && !c->ismaximizescreen &&
+		c->mon->pertag->ltidxs[c->mon->pertag->curtag]->id == VERTICAL_SCROLLER)
+		setmaximizescreen(c, 1);
 }
 
 void maximizenotify(struct wl_listener *listener, void *data) {
@@ -5089,7 +5112,8 @@ LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 	bool layers_more = render_layer_surfaces(m);
 	bool fadeouts_more = render_fadeouts();
 	bool clients_more = render_clients(m, &skip);
-	need_more_frames = layers_more || fadeouts_more || clients_more;
+	bool dim_more = render_overview_dim(m);
+	need_more_frames = layers_more || fadeouts_more || clients_more || dim_more;
 
 	if (!skip) {
 		if (config.allow_tearing && frame_allow_tearing) {
@@ -6265,6 +6289,7 @@ void overview_backup(Client *c) {
 	c->animation.tagining = false;
 	c->animation.tagouted = false;
 	c->animation.tagouting = false;
+	c->ov_anim = true;
 	c->overview_backup_geom = c->geom;
 	c->overview_backup_bw = c->bw;
 	if (c->isfloating) {
@@ -6274,7 +6299,7 @@ void overview_backup(Client *c) {
 		client_pending_fullscreen_state(c, 0);
 		client_pending_maximized_state(c, 0);
 	}
-	c->bw = c->isnoborder ? 0 : config.borderpx;
+	c->bw = c->isnoborder ? 0 : config.overview_borderpx;
 
 	client_set_tiled(c, WLR_EDGE_TOP | WLR_EDGE_BOTTOM | WLR_EDGE_LEFT |
 							WLR_EDGE_RIGHT);
@@ -6290,6 +6315,7 @@ void overview_restore(Client *c, const Arg *arg) {
 	c->geom = c->overview_backup_geom;
 	c->bw = c->overview_backup_bw;
 	c->animation.tagining = false;
+	c->ov_anim = true;
 	c->is_restoring_from_ov = (arg->ui & c->tags & TAGMASK) == 0 ? true : false;
 
 	if (c->isfloating) {
