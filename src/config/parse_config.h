@@ -374,6 +374,10 @@ typedef struct {
 	/* Separate, usually faster spring for tag (workspace) slide transitions. */
 	double animation_spring_tag_tension;
 	double animation_spring_tag_friction;
+	/* Kinetic motion blur: fade a window slightly while it moves fast, crisp
+	   again once the spring settles. strength 0..1 = max opacity drop. */
+	int32_t animation_motion_blur;
+	double animation_motion_blur_strength;
 
 	ConfigEnv **env;
 	int32_t env_count;
@@ -1404,6 +1408,10 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->animation_spring_tag_tension = atof(value);
 	} else if (strcmp(key, "animation_spring_tag_friction") == 0) {
 		config->animation_spring_tag_friction = atof(value);
+	} else if (strcmp(key, "animation_motion_blur") == 0) {
+		config->animation_motion_blur = atoi(value);
+	} else if (strcmp(key, "animation_motion_blur_strength") == 0) {
+		config->animation_motion_blur_strength = atof(value);
 	} else if (strcmp(key, "focus_qos") == 0) {
 		config->focus_qos = atoi(value);
 	} else if (strcmp(key, "focus_qos_bg_nice") == 0) {
@@ -3279,6 +3287,11 @@ void override_config(void) {
 		config.animation_spring_tag_tension = 1.0;
 	if (config.animation_spring_tag_friction < 1.0)
 		config.animation_spring_tag_friction = 1.0;
+	config.animation_motion_blur = CLAMP_INT(config.animation_motion_blur, 0, 1);
+	if (config.animation_motion_blur_strength < 0.0)
+		config.animation_motion_blur_strength = 0.0;
+	if (config.animation_motion_blur_strength > 0.9)
+		config.animation_motion_blur_strength = 0.9;
 	config.drag_tile_refresh_interval =
 		CLAMP_FLOAT(config.drag_tile_refresh_interval, 1.0f, 16.0f);
 	config.drag_floating_refresh_interval =
@@ -3449,6 +3462,8 @@ void set_value_default() {
 	/* Faster than the global spring: k=200,c=28 ~= critical, snappy slide. */
 	config.animation_spring_tag_tension = 200.0;
 	config.animation_spring_tag_friction = 28.0;
+	config.animation_motion_blur = 0;
+	config.animation_motion_blur_strength = 0.3;
 	config.drag_tile_refresh_interval = 8.0f;
 	config.drag_floating_refresh_interval = 8.0f;
 	config.allow_tearing = TEARING_DISABLED;

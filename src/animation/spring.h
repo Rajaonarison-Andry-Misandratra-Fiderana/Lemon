@@ -14,6 +14,9 @@
    resume from sleep) keeps the explicit integrator from exploding. */
 #define SPRING_MAX_DT 0.05
 
+/* Velocity (px/s) at which kinetic motion blur reaches full strength. */
+#define MOTION_BLUR_REF_SPEED 2500.0
+
 /* One semi-implicit Euler step of a single damped-spring axis. Updates *vel in
    place and returns the new position. m=mass, k=tension, c=friction, dt=sec. */
 static inline double spring_axis_step(double pos, double *vel, double target,

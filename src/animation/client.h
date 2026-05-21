@@ -919,6 +919,24 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 		   box (smooth resize, correct overview thumbnails); on settle pass 1.0
 		   so the surface renders unscaled and pixel-crisp. */
 		factor = settled ? 1.0 : 0.5;
+
+		/* Kinetic motion blur: fade proportional to speed while moving, restore
+		   the client's resting opacity on settle (perfectly crisp). */
+		if (config.animation_motion_blur) {
+			if (settled) {
+				client_set_opacity(c, (selmon && selmon->sel == c)
+										   ? config.focused_opacity
+										   : config.unfocused_opacity);
+			} else {
+				double speed = fmax(fabs(c->animation.vel[0]),
+									fabs(c->animation.vel[1]));
+				double norm = speed / MOTION_BLUR_REF_SPEED;
+				if (norm > 1.0)
+					norm = 1.0;
+				client_set_opacity(
+					c, 1.0 - config.animation_motion_blur_strength * norm);
+			}
+		}
 	} else {
 		int32_t passed_time = frame_now_ms() - c->animation.time_started;
 		animation_passed =
