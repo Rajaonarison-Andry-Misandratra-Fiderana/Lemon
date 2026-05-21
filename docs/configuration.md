@@ -154,6 +154,7 @@ Fields: `name` (regex), `make`, `model`, `serial`, `width`, `height`, `refresh`,
 | Key | Values | Meaning |
 |-----|--------|---------|
 | `syncobj_enable` | 0/1 | Explicit GPU sync (linux-drm-syncobj-v1). |
+| `subpixel_rgb` | 0/1 | Force horizontal-RGB subpixel hint for LCD subpixel AA (RGB-stripe panels only). |
 | `focus_qos` | 0/1 | Renice + ioprio focused vs background process group. |
 | `focus_qos_bg_nice` | 1..19 | Background niceness (needs `CAP_SYS_NICE` to restore). |
 | `tag_suspend_hidden` | 0/1 | Send xdg-suspended to hidden-tag windows (0 avoids white-flash). |

@@ -3287,6 +3287,11 @@ void createmon(struct wl_listener *listener, void *data) {
 	wlr_output_state_set_scale(&state, scale);
 	wlr_output_state_set_transform(&state, rr);
 
+	/* Force horizontal-RGB subpixel order so clients can do LCD subpixel AA.
+	   Only correct on standard RGB-stripe panels; opt-in via config. */
+	if (config.subpixel_rgb)
+		wlr_output_state_set_subpixel(&state, WL_OUTPUT_SUBPIXEL_HORIZONTAL_RGB);
+
 	for (ji = 0; ji < config.monitor_rules_count; ji++) {
 		if (config.monitor_rules_count < 1)
 			break;
