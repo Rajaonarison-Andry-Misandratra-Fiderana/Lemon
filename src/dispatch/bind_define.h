@@ -979,6 +979,12 @@ static int spawn_make_actions(posix_spawn_file_actions_t *fa,
 #ifdef POSIX_SPAWN_SETSID
 	flags |= POSIX_SPAWN_SETSID;
 #endif
+#ifdef POSIX_SPAWN_USEVFORK
+	/* clone(CLONE_VM|CLONE_VFORK): child shares the address space until exec,
+	   so the compositor's page tables are never duplicated. Modern glibc takes
+	   this path by default; the flag makes the intent explicit. */
+	flags |= POSIX_SPAWN_USEVFORK;
+#endif
 #ifdef POSIX_SPAWN_SETSCHEDULER
 	{
 		struct sched_param sp = {.sched_priority = 0};

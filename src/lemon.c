@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <sys/signalfd.h>
+#include <fcntl.h>
 #include <time.h>
 #include <unistd.h>
 #include <wayland-server-core.h>
@@ -781,6 +783,7 @@ static void urgent(struct wl_listener *listener, void *data);
 static void view(const Arg *arg, bool want_animation);
 
 static void handlesig(int32_t signo);
+static int32_t setup_sigchld_signalfd(void);
 static void
 handle_keyboard_shortcuts_inhibit_new_inhibitor(struct wl_listener *listener,
 												void *data);
@@ -5921,12 +5924,23 @@ void setup(void) {
 	init_baked_points();
 	surface_cache_load();
 
-	int32_t drm_fd, i, sig[] = {SIGCHLD, SIGINT, SIGTERM, SIGPIPE};
+	/* SIGCHLD is reaped synchronously through a signalfd on the event loop
+	   (deterministic, no async-signal-handler hazards). If that fails, fall
+	   back to the legacy handler so zombies are still reaped. */
+	int32_t drm_fd, i;
+	int32_t sig[] = {SIGINT, SIGTERM, SIGPIPE};
 	struct sigaction sa = {.sa_flags = SA_RESTART, .sa_handler = handlesig};
 	sigemptyset(&sa.sa_mask);
 
 	for (i = 0; i < LENGTH(sig); i++)
 		sigaction(sig[i], &sa, NULL);
+
+	if (setup_sigchld_signalfd() < 0) {
+		struct sigaction chld = {.sa_flags = SA_RESTART | SA_NOCLDSTOP,
+								 .sa_handler = handlesig};
+		sigemptyset(&chld.sa_mask);
+		sigaction(SIGCHLD, &chld, NULL);
+	}
 
 	wlr_log_init(config.log_level, NULL);
 
@@ -7238,6 +7252,59 @@ static void setgeometrynotify(struct wl_listener *listener, void *data) {
 }
 #endif
 
+/* Immunize the compositor against the OOM killer by pinning oom_score_adj to
+   the minimum (-1000). Best-effort: logs and continues on any failure. */
+static void protect_from_oom_killer(void) {
+	int fd = open("/proc/self/oom_score_adj", O_WRONLY | O_CLOEXEC);
+	if (fd < 0) {
+		wlr_log_errno(WLR_INFO, "oom_score_adj: open failed");
+		return;
+	}
+	static const char score[] = "-1000";
+	ssize_t n = write(fd, score, sizeof(score) - 1);
+	if (n != (ssize_t)(sizeof(score) - 1))
+		wlr_log_errno(WLR_INFO, "oom_score_adj: write failed");
+	close(fd);
+}
+
+/* Event-loop callback: drain the signalfd and reap every dead child
+   synchronously. Returns 0 (event handled). */
+static int32_t handle_sigchld_fd(int32_t fd, uint32_t mask, void *data) {
+	struct signalfd_siginfo si;
+	while (read(fd, &si, sizeof(si)) == (ssize_t)sizeof(si))
+		; /* drain queued SIGCHLD notifications */
+	while (waitpid(-1, NULL, WNOHANG) > 0)
+		; /* reap all zombies */
+	return 0;
+}
+
+/* Block SIGCHLD and route it through a signalfd on the event loop so children
+   are reaped deterministically inside the main loop, not in an async handler.
+   Returns the fd, or -1 on failure (caller keeps the legacy handler). */
+static int32_t setup_sigchld_signalfd(void) {
+	sigset_t chld;
+	sigemptyset(&chld);
+	sigaddset(&chld, SIGCHLD);
+	if (sigprocmask(SIG_BLOCK, &chld, NULL) != 0) {
+		wlr_log_errno(WLR_ERROR, "signalfd: sigprocmask failed");
+		return -1;
+	}
+	int fd = signalfd(-1, &chld, SFD_CLOEXEC | SFD_NONBLOCK);
+	if (fd < 0) {
+		wlr_log_errno(WLR_ERROR, "signalfd: creation failed");
+		sigprocmask(SIG_UNBLOCK, &chld, NULL);
+		return -1;
+	}
+	if (!wl_event_loop_add_fd(event_loop, fd, WL_EVENT_READABLE,
+							  handle_sigchld_fd, NULL)) {
+		wlr_log(WLR_ERROR, "signalfd: wl_event_loop_add_fd failed");
+		close(fd);
+		sigprocmask(SIG_UNBLOCK, &chld, NULL);
+		return -1;
+	}
+	return fd;
+}
+
 int32_t main(int32_t argc, char *argv[]) {
 	char *startup_cmd = NULL;
 	int32_t c;
@@ -7263,6 +7330,9 @@ int32_t main(int32_t argc, char *argv[]) {
 
 	if (!getenv("XDG_RUNTIME_DIR"))
 		die("XDG_RUNTIME_DIR must be set");
+
+	/* Never let the kernel sacrifice the compositor under memory pressure. */
+	protect_from_oom_killer();
 
 	/* Step 0: tighten glibc malloc heap behavior. Lower trim threshold so
 	   freed brk-region pages return to the kernel quickly (default 128 KB
