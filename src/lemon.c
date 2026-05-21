@@ -7125,6 +7125,12 @@ int32_t main(int32_t argc, char *argv[]) {
 	   go through mmap and are munmap'd on free (cannot fragment heap). */
 	mallopt(M_TRIM_THRESHOLD, 128 * 1024);
 	mallopt(M_MMAP_THRESHOLD, 128 * 1024);
+	/* Cap per-thread malloc arenas. glibc defaults to 8 * nproc arenas, each
+	   able to grow its own heap — on a many-core laptop that bloats RSS and
+	   fragments badly for a compositor that is almost entirely single-threaded.
+	   Two arenas keep the main loop and any wlroots worker thread contention-
+	   free while holding resident memory down. */
+	mallopt(M_ARENA_MAX, 2);
 
 	/* Step 1: best-effort soft realtime via SCHED_RR priority 1. Requires
 	   CAP_SYS_NICE or membership in 'realtime' group with appropriate limits
