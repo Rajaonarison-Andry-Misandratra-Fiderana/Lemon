@@ -356,6 +356,11 @@ typedef struct {
 
 	int32_t idle_timeout;
 	int32_t idle_action;
+	/* Smooth pre-idle dimming: lead seconds before idle_timeout, spring the
+	   backlight down to floor %, snap back elastically on any input. */
+	int32_t pre_idle_dim;
+	int32_t pre_idle_dim_lead;
+	int32_t pre_idle_dim_floor;
 
 	int32_t focus_qos;
 	int32_t focus_qos_bg_nice;
@@ -1416,6 +1421,12 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->focus_qos = atoi(value);
 	} else if (strcmp(key, "focus_qos_bg_nice") == 0) {
 		config->focus_qos_bg_nice = atoi(value);
+	} else if (strcmp(key, "pre_idle_dim") == 0) {
+		config->pre_idle_dim = atoi(value);
+	} else if (strcmp(key, "pre_idle_dim_lead") == 0) {
+		config->pre_idle_dim_lead = atoi(value);
+	} else if (strcmp(key, "pre_idle_dim_floor") == 0) {
+		config->pre_idle_dim_floor = atoi(value);
 	} else if (strcmp(key, "idle_timeout") == 0) {
 		config->idle_timeout = atoi(value);
 	} else if (strcmp(key, "idle_action") == 0) {
@@ -3269,6 +3280,9 @@ void override_config(void) {
 		config.idle_timeout = 0;
 	config.idle_action = CLAMP_INT(config.idle_action, IDLE_ACTION_OFF,
 								   IDLE_ACTION_HIBERNATE);
+	config.pre_idle_dim = CLAMP_INT(config.pre_idle_dim, 0, 1);
+	config.pre_idle_dim_lead = CLAMP_INT(config.pre_idle_dim_lead, 1, 3600);
+	config.pre_idle_dim_floor = CLAMP_INT(config.pre_idle_dim_floor, 1, 100);
 	config.focus_qos = CLAMP_INT(config.focus_qos, 0, 1);
 	config.focus_qos_bg_nice = CLAMP_INT(config.focus_qos_bg_nice, 1, 19);
 	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);
@@ -3448,6 +3462,9 @@ void set_value_default() {
 	config.syncobj_enable = 1;
 	config.idle_timeout = 300;
 	config.idle_action = IDLE_ACTION_OFF;
+	config.pre_idle_dim = 0;
+	config.pre_idle_dim_lead = 30;
+	config.pre_idle_dim_floor = 10;
 	config.focus_qos = 0;
 	config.focus_qos_bg_nice = 10;
 	config.tag_suspend_hidden = 0;
