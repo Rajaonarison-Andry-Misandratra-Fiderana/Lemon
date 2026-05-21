@@ -371,6 +371,10 @@ typedef struct {
 	   anti-aliasing. Only correct on standard RGB-stripe panels. */
 	int32_t subpixel_rgb;
 
+	/* Log per-frame render time when it exceeds the refresh budget, plus
+	   direct-scanout transitions. Diagnostic only, off by default. */
+	int32_t debug_frametime;
+
 	/* Live 4-finger touchpad swipe: vertical = volume, horizontal = brightness,
 	   emitting swayosd steps continuously as the fingers move. */
 	int32_t touchpad_4f_osd;
@@ -1403,6 +1407,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->tag_suspend_hidden = atoi(value);
 	} else if (strcmp(key, "subpixel_rgb") == 0) {
 		config->subpixel_rgb = atoi(value);
+	} else if (strcmp(key, "debug_frametime") == 0) {
+		config->debug_frametime = atoi(value);
 	} else if (strcmp(key, "touchpad_4f_osd") == 0) {
 		config->touchpad_4f_osd = atoi(value);
 	} else if (strcmp(key, "touchpad_4f_step") == 0) {
@@ -3293,6 +3299,7 @@ void override_config(void) {
 	config.focus_qos_bg_nice = CLAMP_INT(config.focus_qos_bg_nice, 1, 19);
 	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);
 	config.subpixel_rgb = CLAMP_INT(config.subpixel_rgb, 0, 1);
+	config.debug_frametime = CLAMP_INT(config.debug_frametime, 0, 1);
 	config.touchpad_4f_osd = CLAMP_INT(config.touchpad_4f_osd, 0, 1);
 	config.touchpad_4f_step = CLAMP_INT(config.touchpad_4f_step, 5, 300);
 	config.animation_spring = CLAMP_INT(config.animation_spring, 0, 1);
@@ -3476,6 +3483,7 @@ void set_value_default() {
 	config.focus_qos_bg_nice = 10;
 	config.tag_suspend_hidden = 0;
 	config.subpixel_rgb = 0;
+	config.debug_frametime = 0;
 	config.touchpad_4f_osd = 0;
 	config.touchpad_4f_step = 25;
 	config.animation_spring = 1;

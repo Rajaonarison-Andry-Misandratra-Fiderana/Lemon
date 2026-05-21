@@ -5080,6 +5080,10 @@ LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 
 	frame_clock_begin();
 
+	struct timespec t0;
+	if (LEMON_UNLIKELY(config.debug_frametime))
+		clock_gettime(CLOCK_MONOTONIC, &t0);
+
 	bool frame_allow_tearing = check_tearing_frame_allow(m);
 
 	bool layers_more = render_layer_surfaces(m);
@@ -5100,6 +5104,19 @@ LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 
 	if (LEMON_UNLIKELY(need_more_frames && allow_frame_scheduling))
 		schedule_next_frame(m);
+
+	if (LEMON_UNLIKELY(config.debug_frametime)) {
+		struct timespec t1;
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+		int64_t us = (t1.tv_sec - t0.tv_sec) * 1000000 +
+					 (t1.tv_nsec - t0.tv_nsec) / 1000;
+		int64_t budget_us = m->wlr_output->refresh > 0
+								? 1000000000LL / m->wlr_output->refresh
+								: 16666;
+		if (us > budget_us)
+			wlr_log(WLR_INFO, "%s: frame %lldus over %lldus budget",
+					m->wlr_output->name, (long long)us, (long long)budget_us);
+	}
 
 	frame_clock_end();
 }
