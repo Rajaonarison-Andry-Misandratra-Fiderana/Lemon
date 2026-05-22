@@ -9,7 +9,10 @@
 # for the largest stacked gain.
 #
 # Required tools (Arch):
-#     sudo pacman -S bolt perf
+#     yay -S llvm-bolt-bin    # AUR, ships llvm-bolt + perf2bolt + merge-fdata
+#     sudo pacman -S perf
+# NOTE: the official 'bolt' pacman package is the Thunderbolt daemon, NOT LLVM
+# BOLT. LLVM BOLT must come from the AUR (or build from llvm-bolt source).
 # Required kernel:
 #     /proc/sys/kernel/perf_event_paranoid <= 1  (or run perf as root)
 #
