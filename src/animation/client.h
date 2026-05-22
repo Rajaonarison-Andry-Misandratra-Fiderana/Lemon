@@ -889,8 +889,12 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 			c->animation.vis[1] = c->animation.initial.y;
 			c->animation.vis[2] = c->animation.initial.width;
 			c->animation.vis[3] = c->animation.initial.height;
-			c->animation.vel[0] = c->animation.vel[1] = 0.0;
-			c->animation.vel[2] = c->animation.vel[3] = 0.0;
+			/* Seed velocity from gesture momentum (zero unless a throw was
+			   handed off), then consume it so retargets don't re-apply it. */
+			for (int32_t vi = 0; vi < 4; vi++) {
+				c->animation.vel[vi] = c->animation.vel_seed[vi];
+				c->animation.vel_seed[vi] = 0.0;
+			}
 			c->animation.spring_init = true;
 		}
 

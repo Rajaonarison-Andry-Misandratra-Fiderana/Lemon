@@ -331,6 +331,9 @@ struct dwl_animation {
 	double vel[4];
 	bool spring_init;
 	uint32_t last_tick_ms;
+	/* Momentum hand-off: input velocity (px/s) injected into vel[] on the first
+	   spring tick, so a thrown/flung window keeps the gesture's momentum. */
+	double vel_seed[4];
 };
 
 struct dwl_opacity_animation {
@@ -1004,6 +1007,10 @@ static struct wl_list inputdevices;
 static struct wl_list keyboard_shortcut_inhibitors;
 static uint32_t cursor_mode;
 static Client *grabc, *dropc;
+/* Pointer velocity (px/s, EMA) tracked while dragging, handed off to the
+   window's spring on release for the momentum "throw" feel (animation_momentum). */
+static double drag_vel_x, drag_vel_y, drag_last_x, drag_last_y;
+static uint32_t drag_last_ms;
 static int32_t rzcorner;
 static int32_t grabcx, grabcy;
 static int32_t drag_begin_cursorx, drag_begin_cursory;
@@ -2442,8 +2449,9 @@ buttonpress(struct wl_listener *listener, void *data) {
 	case WL_POINTER_BUTTON_STATE_RELEASED:
 		
 		if (!locked && cursor_mode != CurNormal && cursor_mode != CurPressed) {
+			uint32_t release_mode = cursor_mode;
 			cursor_mode = CurNormal;
-			
+
 			wlr_seat_pointer_clear_focus(seat);
 			motionnotify(0, NULL, 0, 0, 0, 0);
 			
@@ -2466,6 +2474,21 @@ buttonpress(struct wl_listener *listener, void *data) {
 				apply_window_snap(tmpc);
 			}
 			tmpc->drag_to_tile = false;
+			/* Hand the drag's momentum to the window's spring so it flies to
+			   its tiled/snapped target and settles, instead of snapping flat.
+			   Consumed on the next spring tick (see spring_init seeding). */
+			if (config.animation_momentum && tmpc) {
+				double sc = config.animation_momentum_scale;
+				if (release_mode == CurResize) {
+					tmpc->animation.vel_seed[2] = drag_vel_x * sc;
+					tmpc->animation.vel_seed[3] = drag_vel_y * sc;
+				} else {
+					tmpc->animation.vel_seed[0] = drag_vel_x * sc;
+					tmpc->animation.vel_seed[1] = drag_vel_y * sc;
+				}
+			}
+			drag_vel_x = drag_vel_y = 0.0;
+			drag_last_ms = 0;
 			if (dropc) {
 				dropc->enable_drop_area_draw = false;
 				client_set_drop_area(dropc);
@@ -4687,6 +4710,27 @@ LEMON_HOT void motionnotify(uint32_t time, struct wlr_input_device *device, doub
 
 		wlr_cursor_move(cursor, device, dx, dy);
 		handlecursoractivity();
+
+		/* Track pointer velocity (EMA) while dragging, for the momentum
+		   hand-off on release. Reset after an idle gap so a slow drag start
+		   does not inherit a stale fling. */
+		if (config.animation_momentum &&
+			(cursor_mode == CurMove || cursor_mode == CurResize)) {
+			uint32_t vnow = frame_now_ms();
+			double vdt = drag_last_ms ? (double)(vnow - drag_last_ms) / 1000.0 : 0;
+			if (vdt > 0.001 && vdt < 0.1) {
+				double ivx = (cursor->x - drag_last_x) / vdt;
+				double ivy = (cursor->y - drag_last_y) / vdt;
+				drag_vel_x = drag_vel_x * 0.6 + ivx * 0.4;
+				drag_vel_y = drag_vel_y * 0.6 + ivy * 0.4;
+			} else {
+				drag_vel_x = drag_vel_y = 0.0;
+			}
+			drag_last_x = cursor->x;
+			drag_last_y = cursor->y;
+			drag_last_ms = vnow;
+		}
+
 		/* Throttle idle-notify D-Bus signal to once per 250 ms.
 		   Continuous cursor motion was flooding the bus and adding latency
 		   on every event. Activity is still reported promptly enough for

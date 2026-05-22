@@ -416,6 +416,11 @@ typedef struct {
 	/* Separate, usually faster spring for tag (workspace) slide transitions. */
 	double animation_spring_tag_tension;
 	double animation_spring_tag_friction;
+	/* Momentum hand-off: on drag/resize release, inject the pointer velocity
+	   into the window's spring so it keeps the gesture's momentum ("throw").
+	   _scale multiplies the handed-off velocity (0 = off-feel, 1 = 1:1). */
+	int32_t animation_momentum;
+	double animation_momentum_scale;
 	/* Kinetic motion blur: fade a window slightly while it moves fast, crisp
 	   again once the spring settles. strength 0..1 = max opacity drop. */
 	int32_t animation_motion_blur;
@@ -1452,6 +1457,10 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->animation_spring_tension = atof(value);
 	} else if (strcmp(key, "animation_spring_friction") == 0) {
 		config->animation_spring_friction = atof(value);
+	} else if (strcmp(key, "animation_momentum") == 0) {
+		config->animation_momentum = atoi(value);
+	} else if (strcmp(key, "animation_momentum_scale") == 0) {
+		config->animation_momentum_scale = atof(value);
 	} else if (strcmp(key, "overview_dim") == 0) {
 		config->overview_dim = atoi(value);
 	} else if (strcmp(key, "overview_dim_alpha") == 0) {
@@ -3366,6 +3375,9 @@ void override_config(void) {
 	config.touchpad_4f_osd = CLAMP_INT(config.touchpad_4f_osd, 0, 1);
 	config.touchpad_4f_step = CLAMP_INT(config.touchpad_4f_step, 5, 300);
 	config.animation_spring = CLAMP_INT(config.animation_spring, 0, 1);
+	config.animation_momentum = CLAMP_INT(config.animation_momentum, 0, 1);
+	config.animation_momentum_scale =
+		CLAMP_FLOAT(config.animation_momentum_scale, 0.0, 3.0);
 	if (config.animation_spring_mass < 0.1)
 		config.animation_spring_mass = 0.1;
 	if (config.animation_spring_tension < 1.0)
@@ -3568,6 +3580,8 @@ void set_value_default() {
 	/* Faster than the global spring: k=200,c=28 ~= critical, snappy slide. */
 	config.animation_spring_tag_tension = 200.0;
 	config.animation_spring_tag_friction = 28.0;
+	config.animation_momentum = 1;
+	config.animation_momentum_scale = 1.0;
 	/* Overview enter/exit: snappiest spring of all — fast, critically damped. */
 	config.animation_spring_overview_tension = 280.0;
 	config.animation_spring_overview_friction = 32.0;
