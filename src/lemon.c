@@ -580,6 +580,11 @@ struct Monitor {
 	struct wl_event_source *skip_frame_timeout;
 	struct wl_event_source *battery_frame_throttle;
 	uint32_t last_anim_schedule_ms;
+	/* Late input latching: deferred render timer + EMA of render duration (us)
+	   used to start the render just before vblank. render_pending guards it. */
+	struct wl_event_source *render_deadline;
+	uint32_t render_ema_us;
+	bool render_pending;
 	struct wlr_box m;
 	struct wlr_box w;
 	struct wl_list layers[4];
@@ -891,6 +896,8 @@ static void request_fresh_all_monitors(void);
 static bool detect_on_battery(void);
 static int battery_poll_callback(void *data);
 static int battery_frame_throttle_callback(void *data);
+static void do_rendermon(Monitor *m);
+static int render_deadline_callback(void *data);
 static Client *find_client_by_direction(Client *tc, const Arg *arg,
 										bool findfloating, bool ignore_align);
 static void exit_scroller_stack(Client *c);
@@ -2643,6 +2650,10 @@ void cleanupmon(struct wl_listener *listener, void *data) {
 		wl_event_source_remove(m->battery_frame_throttle);
 		m->battery_frame_throttle = NULL;
 	}
+	if (m->render_deadline) {
+		wl_event_source_remove(m->render_deadline);
+		m->render_deadline = NULL;
+	}
 	m->wlr_output->data = NULL;
 
 	cleanup_monitor_dwindle(m);
@@ -3276,6 +3287,8 @@ void createmon(struct wl_listener *listener, void *data) {
 		wl_event_loop_add_timer(loop, monitor_skip_frame_timeout_callback, m);
 	m->battery_frame_throttle =
 		wl_event_loop_add_timer(loop, battery_frame_throttle_callback, m);
+	m->render_deadline =
+		wl_event_loop_add_timer(loop, render_deadline_callback, m);
 	m->last_anim_schedule_ms = 0;
 	m->skiping_frame = false;
 	m->resizing_count_pending = 0;
@@ -5150,23 +5163,18 @@ static void schedule_next_frame(Monitor *m) {
 	wlr_output_schedule_frame(m->wlr_output);
 }
 
-/* per-monitor render callback: draw all surfaces, commit, schedule next frame */
-LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
-	Monitor *m = wl_container_of(listener, m, frame);
+/* Draw all surfaces, commit, schedule next frame, and update the render-time EMA.
+   Split from rendermon so the late-latch deadline timer can drive it too. */
+LEMON_HOT void do_rendermon(Monitor *m) {
 	struct timespec now;
 	bool need_more_frames = false;
 	bool skip = false;
 
-	if (LEMON_UNLIKELY(session && !session->active))
-		return;
-
-	if (LEMON_UNLIKELY(!m->wlr_output->enabled || !allow_frame_scheduling))
-		return;
-
 	frame_clock_begin();
 
 	struct timespec t0;
-	if (LEMON_UNLIKELY(config.debug_frametime))
+	bool timed = config.debug_frametime || config.late_latch;
+	if (LEMON_UNLIKELY(timed))
 		clock_gettime(CLOCK_MONOTONIC, &t0);
 
 	bool frame_allow_tearing = check_tearing_frame_allow(m);
@@ -5191,20 +5199,64 @@ LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
 	if (LEMON_UNLIKELY(need_more_frames && allow_frame_scheduling))
 		schedule_next_frame(m);
 
-	if (LEMON_UNLIKELY(config.debug_frametime)) {
+	if (LEMON_UNLIKELY(timed)) {
 		struct timespec t1;
 		clock_gettime(CLOCK_MONOTONIC, &t1);
 		int64_t us = (t1.tv_sec - t0.tv_sec) * 1000000 +
 					 (t1.tv_nsec - t0.tv_nsec) / 1000;
-		int64_t budget_us = m->wlr_output->refresh > 0
-								? 1000000000LL / m->wlr_output->refresh
-								: 16666;
-		if (us > budget_us)
-			wlr_log(WLR_INFO, "%s: frame %lldus over %lldus budget",
-					m->wlr_output->name, (long long)us, (long long)budget_us);
+		/* EMA (1/8 weight) feeds the late-latch deadline computation. */
+		m->render_ema_us = (uint32_t)((m->render_ema_us * 7 + us) / 8);
+		if (LEMON_UNLIKELY(config.debug_frametime)) {
+			int64_t budget_us = m->wlr_output->refresh > 0
+									? 1000000000LL / m->wlr_output->refresh
+									: 16666;
+			if (us > budget_us)
+				wlr_log(WLR_INFO, "%s: frame %lldus over %lldus budget",
+						m->wlr_output->name, (long long)us, (long long)budget_us);
+		}
 	}
 
 	frame_clock_end();
+}
+
+/* Late-latch deadline fired: render now, just before the next vblank. */
+static int render_deadline_callback(void *data) {
+	Monitor *m = data;
+	m->render_pending = false;
+	if (LEMON_UNLIKELY(session && !session->active))
+		return 0;
+	if (LEMON_UNLIKELY(!m->wlr_output->enabled || !allow_frame_scheduling))
+		return 0;
+	do_rendermon(m);
+	return 0;
+}
+
+/* per-monitor frame callback: render immediately, or defer to just before the
+   next vblank when late input latching is enabled (config-gated, default off). */
+LEMON_HOT void rendermon(struct wl_listener *listener, void *data) {
+	Monitor *m = wl_container_of(listener, m, frame);
+
+	if (LEMON_UNLIKELY(session && !session->active))
+		return;
+
+	if (LEMON_UNLIKELY(!m->wlr_output->enabled || !allow_frame_scheduling))
+		return;
+
+	if (LEMON_UNLIKELY(config.late_latch && !config.allow_tearing &&
+					   m->render_deadline && !m->render_pending &&
+					   m->wlr_output->refresh > 0)) {
+		int64_t period_us = 1000000000LL / m->wlr_output->refresh;
+		int64_t delay_us =
+			period_us - (int64_t)m->render_ema_us - config.latency_margin_us;
+		if (delay_us > 1000) {
+			m->render_pending = true;
+			wl_event_source_timer_update(m->render_deadline,
+										 (uint32_t)(delay_us / 1000));
+			return;
+		}
+	}
+
+	do_rendermon(m);
 }
 
 void requestdecorationmode(struct wl_listener *listener, void *data) {

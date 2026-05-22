@@ -392,6 +392,13 @@ typedef struct {
 	int32_t battery_fps;
 	int32_t battery_timer_slack_ms;
 
+	/* Late input latching: defer each render so it finishes just before vblank,
+	   latching the freshest input (~1 frame less input->photon latency).
+	   latency_margin_us is the safety budget reserved before vblank to absorb
+	   render-time jitter. Off by default. */
+	int32_t late_latch;
+	int32_t latency_margin_us;
+
 	/* Vertical-scroller top outer gap override. -1 = center the window in the
 	   usable area (default); >=0 = anchor it that many px below the top
 	   (e.g. 0 hugs a top bar, removing the extra top margin). */
@@ -1481,6 +1488,10 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->battery_fps = atoi(value);
 	} else if (strcmp(key, "battery_timer_slack_ms") == 0) {
 		config->battery_timer_slack_ms = atoi(value);
+	} else if (strcmp(key, "late_latch") == 0) {
+		config->late_latch = atoi(value);
+	} else if (strcmp(key, "latency_margin_us") == 0) {
+		config->latency_margin_us = atoi(value);
 	} else if (strcmp(key, "idle_action") == 0) {
 		if (strcmp(value, "suspend") == 0)
 			config->idle_action = IDLE_ACTION_SUSPEND;
@@ -3338,6 +3349,8 @@ void override_config(void) {
 	config.battery_fps = CLAMP_INT(config.battery_fps, 1, 240);
 	config.battery_timer_slack_ms =
 		CLAMP_INT(config.battery_timer_slack_ms, 0, 1000);
+	config.late_latch = CLAMP_INT(config.late_latch, 0, 1);
+	config.latency_margin_us = CLAMP_INT(config.latency_margin_us, 0, 16000);
 	config.idle_action = CLAMP_INT(config.idle_action, IDLE_ACTION_OFF,
 								   IDLE_ACTION_HIBERNATE);
 	config.pre_idle_dim = CLAMP_INT(config.pre_idle_dim, 0, 1);
@@ -3532,6 +3545,8 @@ void set_value_default() {
 	config.idle_timeout_battery = 0;
 	config.battery_fps = 60;
 	config.battery_timer_slack_ms = 50;
+	config.late_latch = 0;
+	config.latency_margin_us = 2000;
 	config.idle_action = IDLE_ACTION_OFF;
 	config.pre_idle_dim = 0;
 	config.pre_idle_dim_lead = 30;
