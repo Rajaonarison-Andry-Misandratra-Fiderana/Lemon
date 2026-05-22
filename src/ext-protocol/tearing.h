@@ -68,9 +68,14 @@ bool check_tearing_frame_allow(Monitor *m) {
 		return false;
 	}
 
+	/* A GAME content-type hint counts as an implicit tearing request: games
+	   want the lowest-latency present even without the tearing-control proto. */
+	bool wants_tear =
+		c->tearing_hint || c->content_type == WP_CONTENT_TYPE_V1_TYPE_GAME;
+
 	if (config.allow_tearing == TEARING_ENABLED) {
 		if (c->force_tearing == STATE_UNSPECIFIED) {
-			return c->tearing_hint;
+			return wants_tear;
 		} else {
 			return c->force_tearing == STATE_ENABLED;
 		}
@@ -81,8 +86,8 @@ bool check_tearing_frame_allow(Monitor *m) {
 	}
 
 	if (c->force_tearing == STATE_UNSPECIFIED) {
-		
-		return c->tearing_hint ||
+
+		return wants_tear ||
 			   config.allow_tearing == TEARING_FULLSCREEN_ONLY;
 	}
 

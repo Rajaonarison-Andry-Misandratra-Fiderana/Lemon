@@ -1150,6 +1150,13 @@ void client_set_pending_state(Client *c) {
 		c->animation.duration = 0;
 	}
 
+	/* Video/game surfaces should not bounce on resize/tile — a jelly spring on
+	   a video frame looks wrong and wastes the GPU. Keep open/close fade. */
+	if (c->content_type == WP_CONTENT_TYPE_V1_TYPE_VIDEO ||
+		c->content_type == WP_CONTENT_TYPE_V1_TYPE_GAME) {
+		c->animation.should_animate = false;
+	}
+
 	client_commit(c);
 	c->dirty = true;
 }

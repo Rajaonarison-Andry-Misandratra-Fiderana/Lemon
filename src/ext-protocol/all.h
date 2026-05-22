@@ -1,3 +1,4 @@
+#include "content-type.h"
 #include "dwl-ipc.h"
 #include "ext-workspace.h"
 #include "foreign-toplevel.h"

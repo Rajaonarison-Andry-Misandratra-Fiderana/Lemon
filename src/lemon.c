@@ -59,6 +59,7 @@
 #include <wlr/types/wlr_keyboard.h>
 #include <wlr/types/wlr_keyboard_group.h>
 #include <wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h>
+#include <wlr/types/wlr_content_type_v1.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_linux_dmabuf_v1.h>
 #include <wlr/types/wlr_linux_drm_syncobj_v1.h>
@@ -475,6 +476,9 @@ struct Client {
 	bool isleftstack;
 	int32_t tearing_hint;
 	int32_t force_tearing;
+	/* content-type-v1 hint: WP_CONTENT_TYPE_V1_TYPE_{NONE,PHOTO,VIDEO,GAME}.
+	   Refreshed on surface commit; drives auto-tearing and animation skip. */
+	int32_t content_type;
 	int32_t allow_shortcuts_inhibit;
 	float scroller_proportion_single;
 	bool isfocusing;
@@ -2869,6 +2873,8 @@ void commitnotify(struct wl_listener *listener, void *data) {
 	if (c->configure_serial &&
 		c->configure_serial <= c->surface.xdg->current.configure_serial)
 		c->configure_serial = 0;
+
+	client_refresh_content_type(c);
 
 	if (!c->dirty) {
 		new_geo = &c->surface.xdg->geometry;
@@ -6127,6 +6133,8 @@ void setup(void) {
 	tearing_control = wlr_tearing_control_manager_v1_create(dpy, 1);
 	tearing_new_object.notify = handle_tearing_new_object;
 	wl_signal_add(&tearing_control->events.new_object, &tearing_new_object);
+
+	content_type_mgr = wlr_content_type_manager_v1_create(dpy, 1);
 
 	output_layout = wlr_output_layout_create(dpy);
 	wl_signal_add(&output_layout->events.change, &layout_change);
