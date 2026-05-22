@@ -5061,6 +5061,34 @@ static void apply_battery_timer_slack(bool battery) {
 	prctl(PR_SET_TIMERSLACK, ns, 0, 0, 0);
 }
 
+/* PM_QOS request via /dev/cpu_dma_latency: bounds the max DMA wakeup latency
+   the kernel may impose. Holding the fd open with a low value pins the CPUs
+   in shallow C-states, cutting IRQ-to-userspace wakeup from ~100us to ~1us
+   on idle cores — felt as steadier input/frame timing. Costs battery, so we
+   relax to a higher tolerance on battery. -1 disables the request entirely. */
+static int cpu_dma_latency_fd = -1;
+static void apply_cpu_dma_latency(bool battery) {
+	if (config.cpu_dma_latency_us < 0) {
+		if (cpu_dma_latency_fd >= 0) {
+			close(cpu_dma_latency_fd);
+			cpu_dma_latency_fd = -1;
+		}
+		return;
+	}
+	if (cpu_dma_latency_fd < 0) {
+		cpu_dma_latency_fd =
+			open("/dev/cpu_dma_latency", O_WRONLY | O_CLOEXEC);
+		if (cpu_dma_latency_fd < 0)
+			return; /* not available (no permission, no kernel support) */
+	}
+	int32_t v = config.cpu_dma_latency_us;
+	if (battery)
+		v += 1000; /* allow deeper C-states on battery */
+	if (write(cpu_dma_latency_fd, &v, sizeof(v)) != (ssize_t)sizeof(v)) {
+		/* Write failure leaves the previous value (or unset). Not fatal. */
+	}
+}
+
 /* Re-read AC state periodically; reschedule self. On an AC<->battery
    transition, widen/restore the timer slack and re-arm idle timers so the
    battery idle timeout takes effect immediately. Also nudges glibc to release
@@ -5072,6 +5100,7 @@ static int battery_poll_callback(void *data) {
 	on_battery = detect_on_battery();
 	if (on_battery != was_on_battery) {
 		apply_battery_timer_slack(on_battery);
+		apply_cpu_dma_latency(on_battery);
 		reset_idle_timers();
 	}
 	malloc_trim(0);
@@ -6308,6 +6337,7 @@ void setup(void) {
 
 	on_battery = detect_on_battery();
 	apply_battery_timer_slack(on_battery);
+	apply_cpu_dma_latency(on_battery);
 	battery_poll_source = wl_event_loop_add_timer(
 		wl_display_get_event_loop(dpy), battery_poll_callback, NULL);
 	wl_event_source_timer_update(battery_poll_source, 10000);

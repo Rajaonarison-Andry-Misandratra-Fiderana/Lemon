@@ -141,6 +141,13 @@ if get_option('lto') and buildtype != 'debug'
   link_args += lto_flag
 endif
 
+# BOLT post-link optimizer: emit relocations so llvm-bolt can rewrite the
+# binary's basic-block / function layout from a perf profile. Bloats the on-
+# disk binary (the rewriter strips them), so off by default.
+if get_option('bolt') and buildtype != 'debug'
+  link_args += '-Wl,--emit-relocs'
+endif
+
 # Local CPU tuning (opt-in)
 if get_option('native')
   c_args += ['-march=native', '-mtune=native']

@@ -7,3 +7,5 @@ option('pgo', type : 'combo', choices : ['off', 'generate', 'use'], value : 'off
   description : 'Profile-guided optimization: generate to instrument, use to consume gathered profile data')
 option('pgo_dir', type : 'string', value : '',
   description : 'Directory containing PGO profile data (defaults to build-dir/pgo-data)')
+option('bolt', type : 'boolean', value : false,
+  description : 'Link with --emit-relocs so the binary can be optimized post-link by LLVM BOLT (scripts/bolt-build.sh)')

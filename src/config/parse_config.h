@@ -392,6 +392,13 @@ typedef struct {
 	int32_t battery_fps;
 	int32_t battery_timer_slack_ms;
 
+	/* PM_QOS request via /dev/cpu_dma_latency: max DMA wakeup latency (us) the
+	   kernel may impose. Low values pin CPUs in shallow C-states so IRQ
+	   wakeups take ~1us instead of ~100us — steadier input/frame timing at a
+	   battery cost. -1 disables. On battery, 1000us is added so deeper sleep
+	   stays available. Requires CAP_SYS_ADMIN or world-writable device. */
+	int32_t cpu_dma_latency_us;
+
 	/* Late input latching: defer each render so it finishes just before vblank,
 	   latching the freshest input (~1 frame less input->photon latency).
 	   latency_margin_us is the safety budget reserved before vblank to absorb
@@ -1497,6 +1504,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->battery_fps = atoi(value);
 	} else if (strcmp(key, "battery_timer_slack_ms") == 0) {
 		config->battery_timer_slack_ms = atoi(value);
+	} else if (strcmp(key, "cpu_dma_latency_us") == 0) {
+		config->cpu_dma_latency_us = atoi(value);
 	} else if (strcmp(key, "late_latch") == 0) {
 		config->late_latch = atoi(value);
 	} else if (strcmp(key, "latency_margin_us") == 0) {
@@ -3358,6 +3367,8 @@ void override_config(void) {
 	config.battery_fps = CLAMP_INT(config.battery_fps, 1, 240);
 	config.battery_timer_slack_ms =
 		CLAMP_INT(config.battery_timer_slack_ms, 0, 1000);
+	config.cpu_dma_latency_us =
+		CLAMP_INT(config.cpu_dma_latency_us, -1, 1000000);
 	config.late_latch = CLAMP_INT(config.late_latch, 0, 1);
 	config.latency_margin_us = CLAMP_INT(config.latency_margin_us, 0, 16000);
 	config.idle_action = CLAMP_INT(config.idle_action, IDLE_ACTION_OFF,
@@ -3557,6 +3568,7 @@ void set_value_default() {
 	config.idle_timeout_battery = 0;
 	config.battery_fps = 60;
 	config.battery_timer_slack_ms = 50;
+	config.cpu_dma_latency_us = -1;
 	config.late_latch = 0;
 	config.latency_margin_us = 2000;
 	config.idle_action = IDLE_ACTION_OFF;
