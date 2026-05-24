@@ -610,23 +610,23 @@ int32_t restore_minimized(const Arg *arg) {
 
 /* Action: swipe the focused window in arg->i direction.
    - LEFT/RIGHT/UP: switch to the matching master-side layout (tile /
-     right_tile / vertical_tile) and exchange the focused client with its
-     spatial neighbor on that side, so the window visibly travels.
-   - DOWN: minimize the focused client (no layout matches "master on bottom").
-   When the current tag has 1 visible tiled client or less, no swap is
-   possible -- fall back to the vertical_scroller layout instead. */
+     right_tile / vertical_tile) and exchange the focused client with
+     its spatial neighbor on that side, so the window visibly travels.
+   - DOWN: keep the current layout and exchange with the neighbor
+     below; the only layout that would place "master at the bottom"
+     does not exist, so we never switch on DOWN.
+   When the current tag has 1 visible tiled client or less, no swap
+   is possible -- fall back to the vertical_scroller layout instead. */
 int32_t swipe_layout_dir(const Arg *arg) {
 	if (!selmon || !arg)
 		return 0;
-
-	if (arg->i == DOWN)
-		return minimized(&(Arg){0});
 
 	const char *target = NULL;
 	switch (arg->i) {
 	case LEFT:  target = "tile"; break;
 	case RIGHT: target = "right_tile"; break;
 	case UP:    target = "vertical_tile"; break;
+	case DOWN:  target = NULL; break; /* keep current layout */
 	default: return 0;
 	}
 
@@ -652,11 +652,19 @@ int32_t swipe_layout_dir(const Arg *arg) {
 			tiled++;
 	}
 
-	const char *picked = (tiled <= 1) ? "vertical_scroller" : target;
-	for (int32_t i = 0; i < LENGTH(layouts); i++) {
-		if (strcmp(layouts[i].name, picked) == 0) {
-			selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
-			break;
+	/* DOWN never switches layout; other directions fall back to
+	   vertical_scroller when there is nothing to swap with. */
+	const char *picked = NULL;
+	if (tiled <= 1 && arg->i != DOWN)
+		picked = "vertical_scroller";
+	else if (arg->i != DOWN)
+		picked = target;
+	if (picked) {
+		for (int32_t i = 0; i < LENGTH(layouts); i++) {
+			if (strcmp(layouts[i].name, picked) == 0) {
+				selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
+				break;
+			}
 		}
 	}
 	arrange(selmon, false, false);
@@ -2165,4 +2173,39 @@ int32_t dwindle_split_vertical(const Arg *arg) {
 	if (!c || !c->mon || c->isfloating)
 		return 0;
 	return dwindle_set_split_direction(selmon->sel, false, false);
+}
+
+/* Action: open/close the built-in clipboard history popup. */
+int32_t toggle_clipboard_history(const Arg *arg) {
+	(void)arg;
+	clip_popup_toggle();
+	return 0;
+}
+
+/* Action: while the clipboard popup is open, move selection down. */
+int32_t clipboard_history_select_next(const Arg *arg) {
+	(void)arg;
+	clip_popup_move(1);
+	return 0;
+}
+
+/* Action: while the clipboard popup is open, move selection up. */
+int32_t clipboard_history_select_prev(const Arg *arg) {
+	(void)arg;
+	clip_popup_move(-1);
+	return 0;
+}
+
+/* Action: pick the highlighted clipboard entry and close the popup. */
+int32_t clipboard_history_pick(const Arg *arg) {
+	(void)arg;
+	clip_popup_pick();
+	return 0;
+}
+
+/* Action: dismiss the clipboard popup without picking. */
+int32_t clipboard_history_cancel(const Arg *arg) {
+	(void)arg;
+	clip_popup_close();
+	return 0;
 }
