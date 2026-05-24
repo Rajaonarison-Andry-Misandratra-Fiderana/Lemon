@@ -667,6 +667,28 @@ int32_t swipe_layout_dir(const Arg *arg) {
 	return 0;
 }
 
+/* Action: open / step the Alt+Tab style window cycler overlay forward.
+   Falls back to plain focusstack(NEXT) when only one window is visible. */
+int32_t window_cycler_next(const Arg *arg) {
+	(void)arg;
+	if (!selmon)
+		return 0;
+	if (!window_cycler_step(1))
+		focusstack(&(Arg){.i = NEXT});
+	return 0;
+}
+
+/* Action: open / step the Alt+Tab style window cycler overlay backward.
+   Falls back to plain focusstack(PREV) when only one window is visible. */
+int32_t window_cycler_prev(const Arg *arg) {
+	(void)arg;
+	if (!selmon)
+		return 0;
+	if (!window_cycler_step(-1))
+		focusstack(&(Arg){.i = PREV});
+	return 0;
+}
+
 /* Action: switch the current tag's layout to the one whose name matches arg->v. */
 int32_t setlayout(const Arg *arg) {
 	int32_t jk;

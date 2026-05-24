@@ -1092,6 +1092,10 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 	} else if (strcmp(func_name, "swipe_layout_dir") == 0) {
 		func = swipe_layout_dir;
 		(*arg).i = parse_direction(arg_value);
+	} else if (strcmp(func_name, "window_cycler_next") == 0) {
+		func = window_cycler_next;
+	} else if (strcmp(func_name, "window_cycler_prev") == 0) {
+		func = window_cycler_prev;
 	} else if (strcmp(func_name, "togglefloating") == 0) {
 		func = togglefloating;
 	} else if (strcmp(func_name, "togglefullscreen") == 0) {

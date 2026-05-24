@@ -1158,6 +1158,7 @@ static void recompute_render_tiers(void);
 #include "animation/common.h"
 #include "animation/layer.h"
 #include "animation/tag.h"
+#include "dispatch/cycler.h"
 #include "dispatch/bind_define.h"
 #include "ext-protocol/all.h"
 #include "fetch/fetch.h"
@@ -4216,6 +4217,15 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		}
 	}
 
+	/* Commit window cycler selection on Alt release (keycodes 64=Alt_L,
+	   108=Alt_R). The cycler is opened by the window_cycler_next/prev
+	   action and held visible while Alt stays down. */
+	if (window_cycler.active && !locked && group == kb_group &&
+		event->state == WL_KEYBOARD_KEY_STATE_RELEASED &&
+		(keycode == 64 || keycode == 108)) {
+		window_cycler_commit();
+	}
+
 	for (i = 0; i < nsyms; i++)
 		handled =
 			keybinding(event->state, locked, mods, syms[i], keycode) || handled;
@@ -6856,6 +6866,17 @@ void unmapnotify(struct wl_listener *listener, void *data) {
 	Monitor *m = NULL;
 	Client *nextfocus = NULL;
 	c->iskilling = 1;
+
+	/* If the window the cycler is referencing is about to disappear, tear
+	   the overlay down so we never dereference a freed Client. */
+	if (window_cycler.active) {
+		for (int32_t i = 0; i < window_cycler.count; i++) {
+			if (window_cycler.clients[i] == c) {
+				window_cycler_destroy();
+				break;
+			}
+		}
+	}
 
 	/* Persist last-known size for this app_id before the client tears down,
 	   so the next launch can configure straight to the right geometry. */
