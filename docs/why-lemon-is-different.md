@@ -89,8 +89,10 @@ jemalloc. The goal is a small, low-latency binary — not a feature checklist.
 
 ## What Lemon deliberately is *not*
 
-- **No blur, no drop shadow** (kept off for latency/power; opacity, corner
-  radius, and animations stay).
+- **Blur and drop shadow are off by default** — both are wired up via
+  scenefx and can be enabled with `blur=1` / `shadows=1`, but the defaults
+  keep them off because each costs real GPU time per frame. Opacity,
+  corner radius and animations are always on.
 - **No huge config DSL or scripting runtime** — plain `key=value`, hot-reloaded.
 - **No test suite / CI in-tree** — validation is a clean compile + a manual
   smoke test in a nested session.

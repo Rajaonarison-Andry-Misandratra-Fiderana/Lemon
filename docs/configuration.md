@@ -38,6 +38,7 @@ on save. Binds and rules accept comma-separated fields. The annotated example is
 | `zoom_initial_ratio` / `zoom_end_ratio` | 0..1 | Scale endpoints for zoom open/close. |
 | `tag_animation_direction` | 0/1 | Horizontal vs vertical workspace slide. |
 | `animation_curve_open/close/move/tag/focus/opafadein/opafadeout` | 4 floats | Cubic-bezier control points. |
+| `axis_bind_apply_timeout` | ms | Debounce window for `axisbind` (scroll-wheel) actions. |
 
 ### Spring physics (geometry: move / resize / tile / overview / tag)
 
@@ -49,6 +50,10 @@ on save. Binds and rules accept comma-separated fields. The annotated example is
 | `animation_spring_friction` | float | Damping `c`. `c ≈ 2·√(k·m)` = no overshoot; lower = bounce. Clamped ≥1. |
 | `animation_spring_tag_tension` | float | Separate, usually faster tension for workspace switch. |
 | `animation_spring_tag_friction` | float | Damping for the tag spring. |
+| `animation_spring_overview_tension` | float | Snappier tension used while entering/leaving overview. |
+| `animation_spring_overview_friction` | float | Damping for the overview spring. |
+| `animation_momentum` | 0/1 | On drag/resize release, inject pointer velocity into the spring (flick to throw). |
+| `animation_momentum_scale` | 0..3 | Multiplier on the handed-off velocity. |
 | `animation_motion_blur` | 0/1 | Fade a window proportional to spring speed; crisp on settle. |
 | `animation_motion_blur_strength` | 0..0.9 | Max opacity drop at full speed. |
 
@@ -68,12 +73,24 @@ on save. Binds and rules accept comma-separated fields. The annotated example is
 | `overviewgappi` / `overviewgappo` | px | Gaps in overview. |
 | `dwindle_*` | various | Dwindle layout: `split_ratio`, `smart_split`, `smart_resize`, `manual_split`, `preserve_split`, `vsplit`, `hsplit`, `drop_simple_split`. |
 
+### Overview
+
+| Key | Values | Meaning |
+|-----|--------|---------|
+| `enable_hotarea` | 0/1 | Trigger overview when the cursor hits a screen corner. |
+| `hotarea_corner` | 0..3 | Which corner is the hot area (TL/TR/BL/BR). |
+| `hotarea_size` | px | Size of the hot-corner activation box. |
+| `ov_tab_mode` | 0/1 | Alt+Tab style overview (tile cycler) vs grid mode. |
+| `overview_dim` | 0/1 | Fade a dim backdrop behind the overview grid. |
+| `overview_dim_alpha` | 0..1 | Backdrop opacity. |
+| `overview_borderpx` | px | Border width on the hovered/selected overview tile. |
+
 ### Scroller layout
 
 `scroller_structs`, `scroller_default_proportion`, `scroller_default_proportion_single`,
 `scroller_focus_center`, `scroller_prefer_center`, `scroller_prefer_overspread`,
 `scroller_ignore_proportion_single`, `scroller_proportion_preset` (comma list),
-`edge_scroller_pointer_focus`.
+`scroller_top_gap` (-1 centers, ≥0 anchors px below top), `edge_scroller_pointer_focus`.
 
 ## Appearance — borders & colors
 
@@ -87,6 +104,34 @@ on save. Binds and rules accept comma-separated fields. The annotated example is
 | `bordercolor` / `focuscolor` / `urgentcolor` | `0xRRGGBBAA` | Border colors. |
 | `dropcolor` / `splitcolor` / `globalcolor` / `overlaycolor` / `scratchpadcolor` / `maximizescreencolor` | `0xRRGGBBAA` | State indicator colors. |
 | `allow_lock_transparent` | 0/1 | Allow transparency while session locked. |
+| `allow_csd` | 0/1 | Allow client-side decorations. |
+
+### Backdrop blur (scenefx, off by default)
+
+All blur is gated on `blur=1`. Each pass costs GPU shader time per frame —
+opt in only if you want it.
+
+| Key | Values | Meaning |
+|-----|--------|---------|
+| `blur` | 0/1 | Master switch for backdrop blur. |
+| `blur_layer` | 0/1 | Also blur layer-shell surfaces (panels, etc). |
+| `blur_optimized` | 0/1 | Use the dirty-tile optimizer (cheaper). |
+| `blur_params_num_passes` | 0..10 | Two-pass Kawase iterations. |
+| `blur_params_radius` | 0..100 | Sample radius per pass. |
+| `blur_params_noise` | 0..1 | Dithering noise to break banding. |
+| `blur_params_brightness` / `_contrast` / `_saturation` | 0..1 / 0..1 / float | Post-blur color tweaks. |
+
+### Drop shadow (scenefx, off by default)
+
+| Key | Values | Meaning |
+|-----|--------|---------|
+| `shadows` | 0/1 | Master switch for client drop shadows. |
+| `shadow_only_floating` | 0/1 | Only paint shadows on floating windows. |
+| `layer_shadows` | 0/1 | Extend shadows to layer-shell surfaces. |
+| `shadows_size` | 0..100 | Shadow spread in px. |
+| `shadows_blur` | 0..100 | Shadow blur radius. |
+| `shadows_position_x` / `_y` | -1000..1000 | Shadow offset. |
+| `shadowscolor` | `0xRRGGBBAA` | Shadow color. |
 
 ## Cursor
 
@@ -112,7 +157,9 @@ on save. Binds and rules accept comma-separated fields. The annotated example is
 | `scroll_method`, `scroll_button`, `click_method`, `button_map`, `send_events_mode` | libinput config. |
 | `swipe_min_threshold` | Min swipe distance for a gesture. |
 | `enable_floating_snap` / `snap_distance` | Edge snapping for floats. |
-| `enable_hotarea` / `hotarea_corner` / `hotarea_size` | Hot-corner overview trigger. |
+| `drag_tile_to_tile` / `drag_tile_small` | Drag-tile behaviors. |
+| `drag_floating_refresh_interval` / `drag_tile_refresh_interval` | ms throttle on drag-redraw. |
+| `drag_corner` / `drag_warp_cursor` | Resize-by-corner / warp cursor with drag. |
 
 ## Monitors — `monitorrule`
 
@@ -126,14 +173,16 @@ Fields: `name` (regex), `make`, `model`, `serial`, `width`, `height`, `refresh`,
 ## Rules — `windowrule` / `layerrule` / `tagrule`
 
 `windowrule` matches by `appid`/`title`/`id` (regex) and applies: `isfloating`,
-`isfullscreen`, `isfakefullscreen`, `isnoborder`, `isnoradius`, `isnoanimation`,
-`nofadein`, `nofadeout`, `nofocus`, `isoverlay`, `isglobal`/`isunglobal`,
-`isterm`, `noswallow`, `isnamedscratchpad`, `isopensilent`, `istagsilent`,
-`open_as_floating`, `no_force_center`, `no_hide`, `force_tiled_state`,
-`force_fakemaximize`, `indleinhibit_when_focus`, `tags`, `monitor`, `width`,
-`height`, `offsetx`, `offsety`, `scroller_proportion`. `layerrule` keys:
-`layer_name`, animation overrides. `tagrule`: `layout_name`, `mfact`, `nmaster`,
-`gaps`, `monitor`, per-tag layout.
+`isfullscreen`, `isfakefullscreen`, `isnoborder`, `isnoshadow`, `isnoradius`,
+`isnoanimation`, `nofadein`, `nofadeout`, `nofocus`, `isoverlay`,
+`isglobal`/`isunglobal`, `isterm`, `noswallow`, `noblur`, `isnamedscratchpad`,
+`isopensilent`, `istagsilent`, `open_as_floating`, `no_force_center`,
+`no_hide`, `force_tiled_state`, `force_fakemaximize`,
+`indleinhibit_when_focus`, `allow_shortcuts_inhibit`, `tags`, `monitor`,
+`width`, `height`, `offsetx`, `offsety`, `scroller_proportion`. `layerrule`
+keys: `layer_name`, `noblur`, `noanim`, `noshadow`, animation overrides.
+`tagrule`: `layout_name`, `mfact`, `nmaster`, `gaps`, `monitor`, per-tag
+layout.
 
 ## Idle & Power
 
@@ -146,6 +195,9 @@ Fields: `name` (regex), `make`, `model`, `serial`, `width`, `height`, `refresh`,
 | `pre_idle_dim` | 0/1 | Spring-dim the backlight before full idle. |
 | `pre_idle_dim_lead` | seconds | How long before `idle_timeout` dimming starts. |
 | `pre_idle_dim_floor` | 1..100 | Brightness % to dim down to (input springs it back). |
+| `idle_timeout_battery` | seconds | Shorter idle timeout on battery (0 = reuse `idle_timeout`). |
+| `battery_fps` | 1..240 | Cap animation frame rate while on battery. |
+| `battery_timer_slack_ms` | ms | Widen kernel timer slack on battery for deeper C-states. |
 
 ## Performance / QoS
 
@@ -153,9 +205,13 @@ Fields: `name` (regex), `make`, `model`, `serial`, `width`, `height`, `refresh`,
 |-----|--------|---------|
 | `syncobj_enable` | 0/1 | Explicit GPU sync (linux-drm-syncobj-v1). |
 | `subpixel_rgb` | 0/1 | Force horizontal-RGB subpixel hint for LCD subpixel AA (RGB-stripe panels only). |
+| `late_latch` | 0/1 | Defer each render to just before vblank to latch fresher input. Bypassed when tearing. |
+| `latency_margin_us` | µs | Safety budget reserved before vblank when `late_latch=1`. |
+| `cpu_dma_latency_us` | µs / -1 | Hold a low CPU DMA-wakeup-latency request (shallower C-states). -1 = off. |
 | `focus_qos` | 0/1 | Renice + ioprio focused vs background process group. |
 | `focus_qos_bg_nice` | 1..19 | Background niceness (needs `CAP_SYS_NICE` to restore). |
 | `tag_suspend_hidden` | 0/1 | Send xdg-suspended to hidden-tag windows (0 avoids white-flash). |
+| `debug_frametime` | 0/1 | Log per-frame timing budget to stderr (for tuning). |
 
 ## Environment & autostart
 

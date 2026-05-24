@@ -15,8 +15,9 @@ possible latency and resource use while keeping a premium, spring-animated feel.
 - **Spring-physics animations** — move, resize, tile, overview and workspace
   slides use a damped-harmonic-oscillator spring; fully interruptible, pixel
   crisp on settle.
-- **scenefx effects** — per-window opacity fades, rounded corners (no blur, no
-  shadow).
+- **scenefx effects** — per-window opacity fades, rounded corners, plus
+  optional backdrop blur and drop shadow (disabled by default; opt in via
+  `blur=1` / `shadows=1`).
 - **Kinetic motion blur** — fast-moving windows fade slightly, sharp on stop.
 - **True idle sleep** — commits only on damage; self-terminating animations →
   0% CPU when idle.
