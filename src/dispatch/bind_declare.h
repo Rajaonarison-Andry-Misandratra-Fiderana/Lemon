@@ -77,3 +77,8 @@ int32_t toggle_all_floating(const Arg *arg);
 int32_t dwindle_toggle_split_direction(const Arg *arg);
 int32_t dwindle_split_horizontal(const Arg *arg);
 int32_t dwindle_split_vertical(const Arg *arg);
+int32_t toggle_clipboard_history(const Arg *arg);
+int32_t clipboard_history_select_next(const Arg *arg);
+int32_t clipboard_history_select_prev(const Arg *arg);
+int32_t clipboard_history_pick(const Arg *arg);
+int32_t clipboard_history_cancel(const Arg *arg);

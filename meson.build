@@ -26,6 +26,8 @@ libinput_dep = dependency('libinput',version: '>=1.27.1')
 libwayland_client_dep = dependency('wayland-client')
 pcre2_dep = dependency('libpcre2-8')
 libscenefx_dep = dependency('scenefx-0.4',version: '>=0.4.1')
+cairo_dep = dependency('cairo')
+pangocairo_dep = dependency('pangocairo')
 
 # Optional faster allocator (jemalloc/mimalloc). Off by default.
 fast_alloc_dep = dependency('', required: false)
@@ -178,6 +180,8 @@ lemon_deps = [
   libinput_dep,
   libwayland_client_dep,
   pcre2_dep,
+  cairo_dep,
+  pangocairo_dep,
 ]
 if get_option('jemalloc') and fast_alloc_dep.found()
   lemon_deps += fast_alloc_dep

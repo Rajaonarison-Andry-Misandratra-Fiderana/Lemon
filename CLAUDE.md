@@ -76,6 +76,7 @@ the compositor.
 | `src/layout/{scroll,dwindle,vertical,horizontal}.h` | Individual layout algorithms. |
 | `src/animation/{client,layer,tag,common}.h` | Per-object animation. Driven by frame clock in `util.h`. Geometry uses spring physics (see `spring.h`); open/close still use the bezier curve model. |
 | `src/animation/spring.h` | Pure damped-harmonic-oscillator integrator (semi-implicit Euler). Drives all geometry transitions: move, resize, tile, overview, tag/workspace slide. |
+| `src/clipboard/clipboard.h` | Built-in clipboard history (RAM-only ring, default 100 entries × 1 MiB) + bottom-centre picker popup. Captures via the `setsel` listener (async pipe read from `wlr_data_source`), paints rows with pangocairo into ARGB8888 `wlr_buffer`s wrapped under `LyrOverlay`, and pastes by synthesising its own `wlr_data_source`. Up/Down/PgUp/PgDn/Home/End/Enter/Escape are intercepted in `keypress` while the popup is open. |
 | `src/fetch/{client,monitor,common,fetch}.h` | Read-only queries — iterate clients/monitors with filters. |
 | `src/dispatch/bind_declare.h` | Forward decls of every keybind action (`int32_t name(const Arg *)`). |
 | `src/dispatch/bind_define.h` | Bodies of those actions. Adding a keybind = decl here + def here + map in config. |

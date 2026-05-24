@@ -392,6 +392,13 @@ typedef struct {
 
 	int32_t tag_suspend_hidden;
 
+	/* Built-in clipboard history. RAM-only ring, flushed on every restart.
+	   max_entries caps the count; max_bytes caps the size of each entry
+	   (anything larger is dropped before storage). */
+	int32_t clipboard_history;
+	int32_t clipboard_history_max_entries;
+	int32_t clipboard_history_max_bytes;
+
 	/* Force the wl_output subpixel hint to horizontal RGB for LCD subpixel
 	   anti-aliasing. Only correct on standard RGB-stripe panels. */
 	int32_t subpixel_rgb;
@@ -1023,6 +1030,16 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 	} else if (strcmp(func_name, "toggleoverview") == 0) {
 		func = toggleoverview;
 		(*arg).i = atoi(arg_value);
+	} else if (strcmp(func_name, "toggle_clipboard_history") == 0) {
+		func = toggle_clipboard_history;
+	} else if (strcmp(func_name, "clipboard_history_select_next") == 0) {
+		func = clipboard_history_select_next;
+	} else if (strcmp(func_name, "clipboard_history_select_prev") == 0) {
+		func = clipboard_history_select_prev;
+	} else if (strcmp(func_name, "clipboard_history_pick") == 0) {
+		func = clipboard_history_pick;
+	} else if (strcmp(func_name, "clipboard_history_cancel") == 0) {
+		func = clipboard_history_cancel;
 	} else if (strcmp(func_name, "set_proportion") == 0) {
 		func = set_proportion;
 		(*arg).f = atof(arg_value);
@@ -1492,6 +1509,12 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->single_scratchpad = atoi(value);
 	} else if (strcmp(key, "xwayland_persistence") == 0) {
 		config->xwayland_persistence = atoi(value);
+	} else if (strcmp(key, "clipboard_history") == 0) {
+		config->clipboard_history = atoi(value);
+	} else if (strcmp(key, "clipboard_history_max_entries") == 0) {
+		config->clipboard_history_max_entries = atoi(value);
+	} else if (strcmp(key, "clipboard_history_max_bytes") == 0) {
+		config->clipboard_history_max_bytes = atoi(value);
 	} else if (strcmp(key, "syncobj_enable") == 0) {
 		config->syncobj_enable = atoi(value);
 	} else if (strcmp(key, "tag_suspend_hidden") == 0) {
@@ -3445,6 +3468,11 @@ void override_config(void) {
 	config.pre_idle_dim = CLAMP_INT(config.pre_idle_dim, 0, 1);
 	config.pre_idle_dim_lead = CLAMP_INT(config.pre_idle_dim_lead, 1, 3600);
 	config.pre_idle_dim_floor = CLAMP_INT(config.pre_idle_dim_floor, 1, 100);
+	config.clipboard_history = CLAMP_INT(config.clipboard_history, 0, 1);
+	config.clipboard_history_max_entries =
+		CLAMP_INT(config.clipboard_history_max_entries, 1, 1000);
+	config.clipboard_history_max_bytes =
+		CLAMP_INT(config.clipboard_history_max_bytes, 1024, 64 * 1024 * 1024);
 	config.focus_qos = CLAMP_INT(config.focus_qos, 0, 1);
 	config.focus_qos_bg_nice = CLAMP_INT(config.focus_qos_bg_nice, 1, 19);
 	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);

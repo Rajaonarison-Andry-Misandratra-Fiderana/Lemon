@@ -213,6 +213,23 @@ layout.
 | `tag_suspend_hidden` | 0/1 | Send xdg-suspended to hidden-tag windows (0 avoids white-flash). |
 | `debug_frametime` | 0/1 | Log per-frame timing budget to stderr (for tuning). |
 
+## Clipboard history (built-in)
+
+RAM-only ring of past `text/plain` selections, flushed on every compositor
+restart. The picker is a small popup at the bottom-centre of the focused
+monitor; navigate with Up/Down/PgUp/PgDn/Home/End, Enter pastes, Escape
+cancels. No external clipboard manager required.
+
+| Key | Values | Meaning |
+|-----|--------|---------|
+| `clipboard_history` | 0/1 | Master switch. |
+| `clipboard_history_max_entries` | 1..1000 | Ring size. |
+| `clipboard_history_max_bytes` | 1024..67108864 | Per-entry byte cap; bigger selections are dropped. |
+
+Dispatches: `toggle_clipboard_history` (open/close), plus
+`clipboard_history_select_next` / `_select_prev` / `_pick` / `_cancel` for
+explicit binds if you don't want the popup's built-in key handling.
+
 ## Environment & autostart
 
 | Key | Form | Meaning |
