@@ -3623,10 +3623,14 @@ void set_value_default() {
 	config.zoom_end_ratio = 0.8f;
 	config.fadein_begin_opacity = 0.5f;
 	config.fadeout_begin_opacity = 0.5f;
-	config.animation_duration_move = 500;
-	config.animation_duration_open = 400;
-	config.animation_duration_tag = 300;
-	config.animation_duration_close = 300;
+	/* Snappier defaults: legacy bezier paths (open/close/move/tag) all
+	   halved so the unsprung animations finish in well under a frame
+	   budget on a 60 Hz display. focus stays instant; spring-driven
+	   geometry transitions use animation_spring_* below. */
+	config.animation_duration_move = 240;
+	config.animation_duration_open = 200;
+	config.animation_duration_tag = 180;
+	config.animation_duration_close = 150;
 	config.animation_duration_focus = 0;
 
 	config.axis_bind_apply_timeout = 100;
@@ -3695,23 +3699,26 @@ void set_value_default() {
 	config.focus_qos = 0;
 	config.focus_qos_bg_nice = 10;
 	config.tag_suspend_hidden = 0;
+	config.clipboard_history = 1;
+	config.clipboard_history_max_entries = 100;
+	config.clipboard_history_max_bytes = 1 * 1024 * 1024;
 	config.subpixel_rgb = 0;
 	config.debug_frametime = 0;
 	config.scroller_top_gap = -1;
 	config.animation_spring = 1;
 	config.animation_spring_mass = 1.0;
-	/* Slightly slow, smooth, near-critically damped (no bounce). c_crit for
-	   k=120,m=1 is ~21.9, so friction 22 settles cleanly with no overshoot. */
-	config.animation_spring_tension = 120.0;
-	config.animation_spring_friction = 22.0;
-	/* Faster than the global spring: k=200,c=28 ~= critical, snappy slide. */
-	config.animation_spring_tag_tension = 200.0;
-	config.animation_spring_tag_friction = 28.0;
+	/* Snappy near-critical damping (no bounce). c_crit for k,m=1 is
+	   2*sqrt(k); the friction matches so the spring settles cleanly. */
+	config.animation_spring_tension = 180.0;
+	config.animation_spring_friction = 27.0;
+	/* Workspace slides: faster spring -- critical damping at k=260. */
+	config.animation_spring_tag_tension = 260.0;
+	config.animation_spring_tag_friction = 32.0;
 	config.animation_momentum = 1;
 	config.animation_momentum_scale = 1.0;
-	/* Overview enter/exit: snappiest spring of all — fast, critically damped. */
-	config.animation_spring_overview_tension = 280.0;
-	config.animation_spring_overview_friction = 32.0;
+	/* Overview enter/exit: snappiest spring -- critical damping at k=340. */
+	config.animation_spring_overview_tension = 340.0;
+	config.animation_spring_overview_friction = 37.0;
 	config.animation_motion_blur = 0;
 	config.animation_motion_blur_strength = 0.3;
 	config.drag_tile_refresh_interval = 8.0f;
