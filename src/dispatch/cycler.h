@@ -173,10 +173,19 @@ static void window_cycler_commit(void) {
 	}
 }
 
+/* Predicate matching the clients eligible for the cycler list. */
+static inline bool window_cycler_eligible(Client *c, Monitor *m) {
+	return c && c->mon == m && !c->iskilling && !c->isunglobal &&
+		   !client_is_unmanaged(c) && !client_is_x11_popup(c) &&
+		   !c->isminimized && VISIBLEON(c, m);
+}
+
 /* Collect the focusable visible clients on m into the cycler array and
-   build a strip overlay (background panel + one snapshot thumbnail per
-   client, with an outer rectangle drawn as the highlight border).
-   Returns the number of clients picked. */
+   build a grid overlay (background panel + one snapshot thumbnail per
+   client, with an outer rectangle drawn as the highlight border). Up
+   to 3 thumbs per row; extra clients wrap to the next row, and the
+   final partial row is centered. Returns the number of clients
+   picked. */
 static int32_t window_cycler_build(Monitor *m) {
 	if (!m)
 		return 0;
@@ -184,11 +193,8 @@ static int32_t window_cycler_build(Monitor *m) {
 	Client *c = NULL;
 	int32_t n = 0;
 	wl_list_for_each(c, &clients, link) {
-		if (!c || c->mon != m || c->iskilling || c->isunglobal ||
-			client_is_unmanaged(c) || client_is_x11_popup(c) ||
-			c->isminimized || !VISIBLEON(c, m))
-			continue;
-		n++;
+		if (window_cycler_eligible(c, m))
+			n++;
 	}
 	if (n <= 1)
 		return n;
@@ -203,9 +209,7 @@ static int32_t window_cycler_build(Monitor *m) {
 	int32_t i = 0;
 	int32_t current_idx = 0;
 	wl_list_for_each(c, &clients, link) {
-		if (!c || c->mon != m || c->iskilling || c->isunglobal ||
-			client_is_unmanaged(c) || client_is_x11_popup(c) ||
-			c->isminimized || !VISIBLEON(c, m))
+		if (!window_cycler_eligible(c, m))
 			continue;
 		window_cycler.clients[i] = c;
 		if (c == m->sel)
@@ -214,29 +218,42 @@ static int32_t window_cycler_build(Monitor *m) {
 	}
 	window_cycler.index = current_idx;
 
-	/* Aim for overview-sized thumbs: ~28% of the monitor's shortest
-	   dimension per tile, capped so a very wide monitor doesn't blow
-	   the strip past the screen edges. Keep a 16:10 aspect ratio. */
-	int32_t short_side = m->m.width < m->m.height ? m->m.width : m->m.height;
-	int32_t thumb_h = (int32_t)(short_side * 0.32);
-	int32_t thumb_w = (int32_t)(thumb_h * 16.0 / 10.0);
+	/* Grid layout: up to 3 thumbnails per row, wrap to next row when
+	   n > 3. Thumb size starts at ~32% of the monitor's shortest
+	   dimension (16:10 aspect) and shrinks uniformly if the full grid
+	   would overflow either screen axis. */
+	const int32_t per_row = 3;
+	const int32_t cols = n < per_row ? n : per_row;
+	const int32_t rows = (n + per_row - 1) / per_row;
 	const int32_t gap = 24;
 	const int32_t pad = 32;
 	const int32_t border = 6;
+	const int32_t screen_pad = 80; /* safety margin off the monitor edges */
 
-	/* Shrink uniformly if the row would overflow the monitor width. */
-	int32_t total_w = n * thumb_w + (n - 1) * gap + 2 * pad;
-	int32_t max_w = m->m.width - 80;
-	if (total_w > max_w) {
-		double shrink = (double)(max_w - (n - 1) * gap - 2 * pad) /
-						(n * thumb_w);
-		if (shrink < 0.2)
-			shrink = 0.2;
+	int32_t short_side = m->m.width < m->m.height ? m->m.width : m->m.height;
+	int32_t thumb_h = (int32_t)(short_side * 0.32);
+	int32_t thumb_w = (int32_t)(thumb_h * 16.0 / 10.0);
+
+	int32_t inner_w_budget = m->m.width - screen_pad - 2 * pad -
+							 (cols - 1) * gap;
+	int32_t inner_h_budget = m->m.height - screen_pad - 2 * pad -
+							 (rows - 1) * gap;
+	if (inner_w_budget < cols)
+		inner_w_budget = cols;
+	if (inner_h_budget < rows)
+		inner_h_budget = rows;
+	double shrink_w = (double)inner_w_budget / (cols * thumb_w);
+	double shrink_h = (double)inner_h_budget / (rows * thumb_h);
+	double shrink = shrink_w < shrink_h ? shrink_w : shrink_h;
+	if (shrink < 1.0) {
+		if (shrink < 0.15)
+			shrink = 0.15;
 		thumb_w = (int32_t)(thumb_w * shrink);
 		thumb_h = (int32_t)(thumb_h * shrink);
-		total_w = n * thumb_w + (n - 1) * gap + 2 * pad;
 	}
-	int32_t total_h = thumb_h + 2 * pad;
+
+	int32_t total_w = cols * thumb_w + (cols - 1) * gap + 2 * pad;
+	int32_t total_h = rows * thumb_h + (rows - 1) * gap + 2 * pad;
 	int32_t origin_x = m->m.x + (m->m.width - total_w) / 2;
 	int32_t origin_y = m->m.y + (m->m.height - total_h) / 2;
 
@@ -264,8 +281,19 @@ static int32_t window_cycler_build(Monitor *m) {
 	float tile_color[4] = {0.14f, 0.14f, 0.18f, 0.95f};
 	for (int32_t k = 0; k < n; k++) {
 		Client *cl = window_cycler.clients[k];
-		int32_t tx = origin_x + pad + k * (thumb_w + gap);
-		int32_t ty = origin_y + pad;
+		if (!cl || !cl->scene)
+			continue;
+		int32_t row = k / per_row;
+		int32_t col = k % per_row;
+		/* Center the final (possibly partial) row of thumbs. */
+		int32_t row_count = (row == rows - 1 && n % per_row)
+								? (n % per_row)
+								: cols;
+		int32_t row_w = row_count * thumb_w + (row_count - 1) * gap;
+		int32_t row_x = origin_x + pad + (cols * thumb_w + (cols - 1) * gap -
+										   row_w) / 2;
+		int32_t tx = row_x + col * (thumb_w + gap);
+		int32_t ty = origin_y + pad + row * (thumb_h + gap);
 
 		/* Outer highlight border (one per tile, only the current one is
 		   enabled). Drawn first so the thumbnail layers on top of it. */
@@ -349,7 +377,7 @@ static int32_t window_cycler_build(Monitor *m) {
 			   sizes, or sub-surfaces just past the border. */
 			bool inside = (bw > 0 && bh > 0 &&
 						   local_x + bw > 0 && local_y + bh > 0 &&
-						   local_x < cw + cw && local_y < ch + ch);
+						   local_x < 2 * cw && local_y < 2 * ch);
 			if (!inside) {
 				wlr_scene_node_set_enabled(child, false);
 				continue;
