@@ -442,6 +442,9 @@ struct Client {
 	/* True while this client is temporarily unminimized for overview display.
 	   Re-minimized on overview exit unless the user clicked it (selmon->sel). */
 	bool ov_was_minimized;
+	/* Monotonic ms timestamp of last focus activity. Used by the idle
+	   hibernation scanner to decide when to send xdg suspended. */
+	uint32_t last_active_ms;
 	float scroller_proportion;
 	float stack_proportion;
 	float old_stack_proportion;
@@ -4029,6 +4032,11 @@ void focusclient(Client *c, int32_t lift) {
 		selmon->prevsel = selmon->sel;
 		selmon->sel = c;
 		c->isfocusing = true;
+		c->last_active_ms = (uint32_t)get_now_in_ms();
+		/* Wake the client from xdg suspended if we put it to sleep
+		   earlier via the idle hibernation scanner. */
+		if (c->suspended_sent && !client_is_x11(c))
+			client_set_suspended(c, false);
 		recompute_render_tiers();
 
 		check_keep_idle_inhibit(c);
@@ -4630,6 +4638,7 @@ void init_client_properties(Client *c) {
 	c->is_restoring_from_ov = 0;
 	c->isurgent = 0;
 	c->need_output_flush = 0;
+	c->last_active_ms = (uint32_t)get_now_in_ms();
 	c->scroller_proportion = config.scroller_default_proportion;
 	c->is_pending_open_animation = true;
 	c->drag_to_tile = false;
@@ -5356,6 +5365,56 @@ static int battery_poll_callback(void *data) {
 	}
 	malloc_trim(0);
 	wl_event_source_timer_update(battery_poll_source, 10000);
+	return 0;
+}
+
+/* Check whether any idle inhibitor's surface belongs to this client.
+   Inhibited clients (typical case: a media player while playing) are
+   never sent xdg suspended by the idle hibernation scanner. */
+static bool client_has_idle_inhibitor(Client *c) {
+	if (!c || !idle_inhibit_mgr || !client_surface(c))
+		return false;
+	struct wlr_idle_inhibitor_v1 *inh = NULL;
+	wl_list_for_each(inh, &idle_inhibit_mgr->inhibitors, link) {
+		Client *ic = NULL;
+		toplevel_from_wlr_surface(inh->surface, &ic, NULL);
+		if (ic == c)
+			return true;
+	}
+	return false;
+}
+
+/* Periodic scan: send xdg suspended to every xdg client that has been
+   unfocused for more than client_hibernate_idle_secs seconds and is
+   not holding an idle inhibitor. Most toolkits stop animating /
+   rendering on suspended -- the window keeps its buffer (no flash on
+   focus return) but drops to ~0% CPU. */
+static struct wl_event_source *client_hibernate_source = NULL;
+static int client_hibernate_scan_callback(void *data) {
+	(void)data;
+	int32_t threshold = config.client_hibernate_idle_secs;
+	if (threshold > 0) {
+		uint32_t now = (uint32_t)get_now_in_ms();
+		uint32_t cutoff = (uint32_t)threshold * 1000u;
+		Client *c = NULL;
+		wl_list_for_each(c, &clients, link) {
+			if (!c || c->iskilling || client_is_x11(c) ||
+				client_is_unmanaged(c))
+				continue;
+			if (selmon && selmon->sel == c)
+				continue;
+			if (c->isminimized)
+				continue;
+			if (client_has_idle_inhibitor(c))
+				continue;
+			bool idle = (now - c->last_active_ms) > cutoff;
+			if (idle && !c->suspended_sent)
+				client_set_suspended(c, true);
+			else if (!idle && c->suspended_sent)
+				client_set_suspended(c, false);
+		}
+	}
+	wl_event_source_timer_update(client_hibernate_source, 15000);
 	return 0;
 }
 
@@ -6547,6 +6606,10 @@ void setup(void) {
 
 	keep_idle_inhibit_source = wl_event_loop_add_timer(
 		wl_display_get_event_loop(dpy), keep_idle_inhibit, NULL);
+
+	client_hibernate_source = wl_event_loop_add_timer(
+		wl_display_get_event_loop(dpy), client_hibernate_scan_callback, NULL);
+	wl_event_source_timer_update(client_hibernate_source, 15000);
 
 	setup_idle_timers();
 

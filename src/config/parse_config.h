@@ -392,6 +392,13 @@ typedef struct {
 
 	int32_t tag_suspend_hidden;
 
+	/* Per-window idle hibernation: after this many seconds without
+	   focus and without an idle-inhibitor, send xdg_toplevel.suspended
+	   to the client. Most modern toolkits pause their render loop on
+	   suspended so the client drops to ~0% CPU until refocused.
+	   0 = disabled (default). Honored only on xdg clients. */
+	int32_t client_hibernate_idle_secs;
+
 	/* Built-in clipboard history. RAM-only ring, flushed on every restart.
 	   max_entries caps the count; max_bytes caps the size of each entry
 	   (anything larger is dropped before storage). */
@@ -1517,6 +1524,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->clipboard_history_max_bytes = atoi(value);
 	} else if (strcmp(key, "syncobj_enable") == 0) {
 		config->syncobj_enable = atoi(value);
+	} else if (strcmp(key, "client_hibernate_idle_secs") == 0) {
+		config->client_hibernate_idle_secs = atoi(value);
 	} else if (strcmp(key, "tag_suspend_hidden") == 0) {
 		config->tag_suspend_hidden = atoi(value);
 	} else if (strcmp(key, "subpixel_rgb") == 0) {
@@ -3476,6 +3485,8 @@ void override_config(void) {
 	config.focus_qos = CLAMP_INT(config.focus_qos, 0, 1);
 	config.focus_qos_bg_nice = CLAMP_INT(config.focus_qos_bg_nice, 1, 19);
 	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);
+	config.client_hibernate_idle_secs =
+		CLAMP_INT(config.client_hibernate_idle_secs, 0, 86400);
 	config.subpixel_rgb = CLAMP_INT(config.subpixel_rgb, 0, 1);
 	config.debug_frametime = CLAMP_INT(config.debug_frametime, 0, 1);
 	if (config.scroller_top_gap < -1)
@@ -3699,6 +3710,7 @@ void set_value_default() {
 	config.focus_qos = 0;
 	config.focus_qos_bg_nice = 10;
 	config.tag_suspend_hidden = 0;
+	config.client_hibernate_idle_secs = 0;
 	config.clipboard_history = 1;
 	config.clipboard_history_max_entries = 100;
 	config.clipboard_history_max_bytes = 1 * 1024 * 1024;
