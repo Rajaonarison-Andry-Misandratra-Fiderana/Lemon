@@ -63,6 +63,7 @@ typedef struct {
 	const char *layer_animation_type_open;
 	const char *layer_animation_type_close;
 	int32_t isnoborder;
+	int32_t isnoshadow;
 	int32_t isnoradius;
 	int32_t isnoanimation;
 	int32_t isopensilent;
@@ -91,6 +92,7 @@ typedef struct {
 	int32_t force_tiled_state;
 	int32_t force_tearing;
 	int32_t noswallow;
+	int32_t noblur;
 	float focused_opacity;
 	float unfocused_opacity;
 	float scroller_proportion_single;
@@ -183,7 +185,9 @@ typedef struct {
 	char *layer_name;
 	char *animation_type_open;
 	char *animation_type_close;
+	int32_t noblur;
 	int32_t noanim;
+	int32_t noshadow;
 } ConfigLayerRule;
 
 typedef struct {
@@ -304,8 +308,20 @@ typedef struct {
 	int32_t drag_lock;
 	uint32_t button_map;
 
+	int32_t blur;
+	int32_t blur_layer;
+	int32_t blur_optimized;
 	int32_t border_radius;
 	int32_t border_radius_location_default;
+	struct blur_data blur_params;
+	int32_t shadows;
+	int32_t shadow_only_floating;
+	int32_t layer_shadows;
+	uint32_t shadows_size;
+	float shadows_blur;
+	int32_t shadows_position_x;
+	int32_t shadows_position_y;
+	float shadowscolor[4];
 
 	int32_t smartgaps;
 	uint32_t gappih;
@@ -1438,8 +1454,40 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->focus_cross_tag = atoi(value);
 	} else if (strcmp(key, "view_current_to_back") == 0) {
 		config->view_current_to_back = atoi(value);
+	} else if (strcmp(key, "blur") == 0) {
+		config->blur = atoi(value);
+	} else if (strcmp(key, "blur_layer") == 0) {
+		config->blur_layer = atoi(value);
+	} else if (strcmp(key, "blur_optimized") == 0) {
+		config->blur_optimized = atoi(value);
 	} else if (strcmp(key, "border_radius") == 0) {
 		config->border_radius = atoi(value);
+	} else if (strcmp(key, "blur_params_num_passes") == 0) {
+		config->blur_params.num_passes = atoi(value);
+	} else if (strcmp(key, "blur_params_radius") == 0) {
+		config->blur_params.radius = atoi(value);
+	} else if (strcmp(key, "blur_params_noise") == 0) {
+		config->blur_params.noise = atof(value);
+	} else if (strcmp(key, "blur_params_brightness") == 0) {
+		config->blur_params.brightness = atof(value);
+	} else if (strcmp(key, "blur_params_contrast") == 0) {
+		config->blur_params.contrast = atof(value);
+	} else if (strcmp(key, "blur_params_saturation") == 0) {
+		config->blur_params.saturation = atof(value);
+	} else if (strcmp(key, "shadows") == 0) {
+		config->shadows = atoi(value);
+	} else if (strcmp(key, "shadow_only_floating") == 0) {
+		config->shadow_only_floating = atoi(value);
+	} else if (strcmp(key, "layer_shadows") == 0) {
+		config->layer_shadows = atoi(value);
+	} else if (strcmp(key, "shadows_size") == 0) {
+		config->shadows_size = atoi(value);
+	} else if (strcmp(key, "shadows_blur") == 0) {
+		config->shadows_blur = atof(value);
+	} else if (strcmp(key, "shadows_position_x") == 0) {
+		config->shadows_position_x = atoi(value);
+	} else if (strcmp(key, "shadows_position_y") == 0) {
+		config->shadows_position_y = atoi(value);
 	} else if (strcmp(key, "single_scratchpad") == 0) {
 		config->single_scratchpad = atoi(value);
 	} else if (strcmp(key, "xwayland_persistence") == 0) {
@@ -1817,6 +1865,17 @@ bool parse_option(Config *config, char *key, char *value) {
 			convert_hex_to_rgba(config->rootcolor, color);
 		}
 
+	} else if (strcmp(key, "shadowscolor") == 0) {
+		int64_t color = parse_color(value);
+		if (color == -1) {
+			fprintf(stderr,
+					"\033[1m\033[31m[ERROR]:\033[33m Invalid shadowscolor "
+					"format: %s\n",
+					value);
+			return false;
+		} else {
+			convert_hex_to_rgba(config->shadowscolor, color);
+		}
 	} else if (strcmp(key, "bordercolor") == 0) {
 		int64_t color = parse_color(value);
 		if (color == -1) {
@@ -2097,7 +2156,9 @@ bool parse_option(Config *config, char *key, char *value) {
 		rule->layer_name = NULL;
 		rule->animation_type_open = NULL;
 		rule->animation_type_close = NULL;
+		rule->noblur = 0;
 		rule->noanim = 0;
+		rule->noshadow = 0;
 
 		bool parse_error = false;
 		char *token = strtok(value, ",");
@@ -2117,8 +2178,12 @@ bool parse_option(Config *config, char *key, char *value) {
 					rule->animation_type_open = strdup(val);
 				} else if (strcmp(key, "animation_type_close") == 0) {
 					rule->animation_type_close = strdup(val);
+				} else if (strcmp(key, "noblur") == 0) {
+					rule->noblur = CLAMP_INT(atoi(val), 0, 1);
 				} else if (strcmp(key, "noanim") == 0) {
 					rule->noanim = CLAMP_INT(atoi(val), 0, 1);
+				} else if (strcmp(key, "noshadow") == 0) {
+					rule->noshadow = CLAMP_INT(atoi(val), 0, 1);
 				} else {
 					fprintf(stderr,
 							"\033[1m\033[31m[ERROR]:\033[33m Unknown "
@@ -2155,6 +2220,7 @@ bool parse_option(Config *config, char *key, char *value) {
 		rule->isfullscreen = -1;
 		rule->isfakefullscreen = -1;
 		rule->isnoborder = -1;
+		rule->isnoshadow = -1;
 		rule->isnoradius = -1;
 		rule->isnoanimation = -1;
 		rule->isopensilent = -1;
@@ -2174,6 +2240,7 @@ bool parse_option(Config *config, char *key, char *value) {
 		rule->force_tiled_state = -1;
 		rule->force_tearing = -1;
 		rule->noswallow = -1;
+		rule->noblur = -1;
 		rule->nofocus = -1;
 		rule->nofadein = -1;
 		rule->nofadeout = -1;
@@ -2242,6 +2309,8 @@ bool parse_option(Config *config, char *key, char *value) {
 					rule->height = atof(val);
 				} else if (strcmp(key, "isnoborder") == 0) {
 					rule->isnoborder = atoi(val);
+				} else if (strcmp(key, "isnoshadow") == 0) {
+					rule->isnoshadow = atoi(val);
 				} else if (strcmp(key, "isnoradius") == 0) {
 					rule->isnoradius = atoi(val);
 				} else if (strcmp(key, "isnoanimation") == 0) {
@@ -2286,6 +2355,8 @@ bool parse_option(Config *config, char *key, char *value) {
 					rule->force_tearing = atoi(val);
 				} else if (strcmp(key, "noswallow") == 0) {
 					rule->noswallow = atoi(val);
+				} else if (strcmp(key, "noblur") == 0) {
+					rule->noblur = atoi(val);
 				} else if (strcmp(key, "scroller_proportion") == 0) {
 					rule->scroller_proportion = atof(val);
 				} else if (strcmp(key, "isfullscreen") == 0) {
@@ -3485,7 +3556,29 @@ void override_config(void) {
 		CLAMP_FLOAT(config.scratchpad_height_ratio, 0.1f, 1.0f);
 	config.borderpx = CLAMP_INT(config.borderpx, 0, 200);
 	config.smartgaps = CLAMP_INT(config.smartgaps, 0, 1);
+	config.blur = CLAMP_INT(config.blur, 0, 1);
+	config.blur_layer = CLAMP_INT(config.blur_layer, 0, 1);
+	config.blur_optimized = CLAMP_INT(config.blur_optimized, 0, 1);
 	config.border_radius = CLAMP_INT(config.border_radius, 0, 100);
+	config.blur_params.num_passes =
+		CLAMP_INT(config.blur_params.num_passes, 0, 10);
+	config.blur_params.radius = CLAMP_INT(config.blur_params.radius, 0, 100);
+	config.blur_params.noise = CLAMP_FLOAT(config.blur_params.noise, 0, 1);
+	config.blur_params.brightness =
+		CLAMP_FLOAT(config.blur_params.brightness, 0, 1);
+	config.blur_params.contrast =
+		CLAMP_FLOAT(config.blur_params.contrast, 0, 1);
+	config.blur_params.saturation =
+		CLAMP_FLOAT(config.blur_params.saturation, 0, 1);
+	config.shadows = CLAMP_INT(config.shadows, 0, 1);
+	config.shadow_only_floating = CLAMP_INT(config.shadow_only_floating, 0, 1);
+	config.layer_shadows = CLAMP_INT(config.layer_shadows, 0, 1);
+	config.shadows_size = CLAMP_INT(config.shadows_size, 0, 100);
+	config.shadows_blur = CLAMP_INT(config.shadows_blur, 0, 100);
+	config.shadows_position_x =
+		CLAMP_INT(config.shadows_position_x, -1000, 1000);
+	config.shadows_position_y =
+		CLAMP_INT(config.shadows_position_y, -1000, 1000);
 	config.focused_opacity = CLAMP_FLOAT(config.focused_opacity, 0.0f, 1.0f);
 	config.unfocused_opacity =
 		CLAMP_FLOAT(config.unfocused_opacity, 0.0f, 1.0f);
@@ -3643,10 +3736,31 @@ void set_value_default() {
 	config.send_events_mode = LIBINPUT_CONFIG_SEND_EVENTS_ENABLED;
 	config.button_map = LIBINPUT_CONFIG_TAP_MAP_LRM;
 
+	config.blur = 0;
+	config.blur_layer = 0;
+	config.blur_optimized = 1;
 	config.border_radius = 0;
 	config.border_radius_location_default = CORNER_LOCATION_ALL;
+	config.blur_params.num_passes = 1;
+	config.blur_params.radius = 5;
+	config.blur_params.noise = 0.02f;
+	config.blur_params.brightness = 0.9f;
+	config.blur_params.contrast = 0.9f;
+	config.blur_params.saturation = 1.2f;
+	config.shadows = 0;
+	config.shadow_only_floating = 1;
+	config.layer_shadows = 0;
+	config.shadows_size = 10;
+	config.shadows_blur = 15.0f;
+	config.shadows_position_x = 0;
+	config.shadows_position_y = 0;
 	config.focused_opacity = 1.0f;
 	config.unfocused_opacity = 1.0f;
+
+	config.shadowscolor[0] = 0.0f;
+	config.shadowscolor[1] = 0.0f;
+	config.shadowscolor[2] = 0.0f;
+	config.shadowscolor[3] = 1.0f;
 
 	config.animation_curve_move[0] = 0.46;
 	config.animation_curve_move[1] = 1.0;
@@ -3814,6 +3928,46 @@ bool parse_config(void) {
 	return parse_correct;
 }
 
+/* Recreate or destroy the per-monitor optimized blur scene nodes to match the current config. */
+void reset_blur_params(void) {
+	
+	{
+		Monitor *m_inv;
+		LayerSurface *l_inv;
+		wl_list_for_each(m_inv, &mons, link) {
+			for (size_t li = 0; li < LENGTH(m_inv->layers); li++) {
+				wl_list_for_each(l_inv, &m_inv->layers[li], link) {
+					l_inv->blur_state_applied = false;
+				}
+			}
+		}
+	}
+
+	if (config.blur) {
+		Monitor *m = NULL;
+		wl_list_for_each(m, &mons, link) {
+			if (m->blur != NULL) {
+				wlr_scene_node_destroy(&m->blur->node);
+			}
+			m->blur = wlr_scene_optimized_blur_create(&scene->tree, 0, 0);
+			wlr_scene_node_reparent(&m->blur->node, layers[LyrBlur]);
+			wlr_scene_optimized_blur_set_size(m->blur, m->m.width, m->m.height);
+			wlr_scene_set_blur_data(
+				scene, config.blur_params.num_passes, config.blur_params.radius,
+				config.blur_params.noise, config.blur_params.brightness,
+				config.blur_params.contrast, config.blur_params.saturation);
+		}
+	} else {
+		Monitor *m = NULL;
+		wl_list_for_each(m, &mons, link) {
+
+			if (m->blur) {
+				wlr_scene_node_destroy(&m->blur->node);
+				m->blur = NULL;
+			}
+		}
+	}
+}
 
 /* Walk all enabled monitors and re-commit the first matching ConfigMonitorRule to each. */
 void reapply_monitor_rules(void) {
@@ -4071,6 +4225,7 @@ void reset_option(void) {
 	init_baked_points();
 	handlecursoractivity();
 	reset_keyboard_layout();
+	reset_blur_params();
 	set_env();
 	run_exec();
 
