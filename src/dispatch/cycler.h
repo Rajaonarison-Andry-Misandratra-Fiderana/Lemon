@@ -44,13 +44,35 @@ static void cycler_drop_raised_tile(void) {
 	wlr_scene_node_reparent(&t->scene->node, layers[target_layer]);
 }
 
+/* Read the "logical" display width/height of a snapshot scene buffer.
+   Prefer the explicit dst_width/dst_height (already in logical
+   coords, set by scenefx for scaled surfaces). Fall back to the
+   underlying wlr_buffer's natural dimensions divided by output_scale
+   so HiDPI buffers (whose natural size is in pixels, e.g. 1920px for
+   a 960-wide logical client) don't end up doubled. */
+static void window_cycler_buffer_size(struct wlr_scene_buffer *buf,
+									  double output_scale, int32_t *out_w,
+									  int32_t *out_h) {
+	int32_t w = buf->dst_width;
+	int32_t h = buf->dst_height;
+	if ((w == 0 || h == 0) && buf->buffer) {
+		double s = output_scale > 0 ? output_scale : 1.0;
+		if (w == 0)
+			w = (int32_t)(buf->buffer->width / s);
+		if (h == 0)
+			h = (int32_t)(buf->buffer->height / s);
+	}
+	*out_w = w;
+	*out_h = h;
+}
+
 /* Recursively scale a snapshot subtree by (sx, sy): each node's
    position and any sized payload (buffer dst, rect/shadow size) is
    multiplied by the scale factor so the rendered subtree shrinks in
    place. Scale is applied once at every level so the tree's natural
    relative layout is preserved. */
 static void window_cycler_scale_node(struct wlr_scene_node *node, double sx,
-									 double sy) {
+									 double sy, double output_scale) {
 	if (!node)
 		return;
 
@@ -61,14 +83,8 @@ static void window_cycler_scale_node(struct wlr_scene_node *node, double sx,
 	switch (node->type) {
 	case WLR_SCENE_NODE_BUFFER: {
 		struct wlr_scene_buffer *buf = wlr_scene_buffer_from_node(node);
-		int32_t w = buf->dst_width;
-		int32_t h = buf->dst_height;
-		if ((w == 0 || h == 0) && buf->buffer) {
-			if (w == 0)
-				w = buf->buffer->width;
-			if (h == 0)
-				h = buf->buffer->height;
-		}
+		int32_t w = 0, h = 0;
+		window_cycler_buffer_size(buf, output_scale, &w, &h);
 		if (w > 0 && h > 0)
 			wlr_scene_buffer_set_dest_size(buf, (int32_t)(w * sx),
 										   (int32_t)(h * sy));
@@ -93,7 +109,7 @@ static void window_cycler_scale_node(struct wlr_scene_node *node, double sx,
 			wl_container_of(node, tree, node);
 		struct wlr_scene_node *child = NULL;
 		wl_list_for_each(child, &tree->children, link) {
-			window_cycler_scale_node(child, sx, sy);
+			window_cycler_scale_node(child, sx, sy, output_scale);
 		}
 		break;
 	}
@@ -308,6 +324,10 @@ static int32_t window_cycler_build(Monitor *m) {
 		double s = sx < sy ? sx : sy;
 		int32_t ox = cl->scene->node.x;
 		int32_t oy = cl->scene->node.y;
+		double output_scale =
+			(cl->mon && cl->mon->wlr_output)
+				? cl->mon->wlr_output->scale
+				: 1.0;
 
 		bool any_visible = false;
 		struct wlr_scene_node *child = NULL;
@@ -319,26 +339,24 @@ static int32_t window_cycler_build(Monitor *m) {
 			if (child->type == WLR_SCENE_NODE_BUFFER) {
 				struct wlr_scene_buffer *buf =
 					wlr_scene_buffer_from_node(child);
-				bw = buf->dst_width;
-				bh = buf->dst_height;
-				if ((bw == 0 || bh == 0) && buf->buffer) {
-					if (bw == 0)
-						bw = buf->buffer->width;
-					if (bh == 0)
-						bh = buf->buffer->height;
-				}
+				window_cycler_buffer_size(buf, output_scale, &bw, &bh);
 			}
 
+			/* Tolerant inside check: keep any child whose buffer
+			   reaches into the client geom, even if it sticks out a
+			   bit. Strict "fully inside" rejected too many real
+			   client surfaces -- HiDPI clients with mismatched dst
+			   sizes, or sub-surfaces just past the border. */
 			bool inside = (bw > 0 && bh > 0 &&
 						   local_x + bw > 0 && local_y + bh > 0 &&
-						   local_x < cw && local_y < ch);
+						   local_x < cw + cw && local_y < ch + ch);
 			if (!inside) {
 				wlr_scene_node_set_enabled(child, false);
 				continue;
 			}
 			any_visible = true;
 			wlr_scene_node_set_position(child, local_x, local_y);
-			window_cycler_scale_node(child, s, s);
+			window_cycler_scale_node(child, s, s, output_scale);
 		}
 
 		if (!any_visible) {

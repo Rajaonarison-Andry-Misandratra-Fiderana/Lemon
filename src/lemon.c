@@ -2364,6 +2364,52 @@ buttonpress(struct wl_listener *listener, void *data) {
 		if (locked)
 			break;
 
+		/* Window cycler eats clicks while open: left-click on a thumb
+		   picks that window and commits; right-click closes it
+		   in-place (cycler rebuilds). Click outside any thumb closes
+		   the overlay without committing. */
+		if (window_cycler.active && window_cycler.tiles) {
+			int32_t hit = -1;
+			for (int32_t k = 0; k < window_cycler.count; k++) {
+				struct wlr_scene_rect *tile = window_cycler.tiles[k];
+				if (!tile)
+					continue;
+				int32_t tx = tile->node.x;
+				int32_t ty = tile->node.y;
+				int32_t tw = tile->width;
+				int32_t th = tile->height;
+				if (cursor->x >= tx && cursor->x < tx + tw &&
+					cursor->y >= ty && cursor->y < ty + th) {
+					hit = k;
+					break;
+				}
+			}
+			if (hit < 0) {
+				window_cycler_destroy();
+				cursor_mode = CurNormal;
+				return;
+			}
+			if (event->button == BTN_LEFT) {
+				window_cycler.index = hit;
+				window_cycler_commit();
+				cursor_mode = CurNormal;
+				return;
+			}
+			if (event->button == BTN_RIGHT) {
+				Client *victim = window_cycler.clients[hit];
+				Monitor *m = window_cycler.mon;
+				window_cycler_destroy();
+				if (victim && !victim->iskilling)
+					pending_kill_client(victim);
+				if (m && window_cycler_build(m) <= 1)
+					window_cycler_destroy();
+				cursor_mode = CurNormal;
+				return;
+			}
+			cursor_mode = CurNormal;
+			return;
+		}
+
 		/* Clipboard popup eats left clicks: a click inside a row picks
 		   the entry (auto-paste); a click outside dismisses the popup
 		   without touching client focus. Both consume the event so the
