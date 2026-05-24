@@ -610,7 +610,40 @@ static void clip_popup_move(int delta) {
 	clip_popup_refresh_rows();
 }
 
-/* Synthesise a paste-from-history selection from the chosen row, close popup. */
+/* Inject a Ctrl+V key sequence to the surface that currently has the
+   keyboard focus. The popup never grabs focus (LyrFadeOut, not in the
+   seat keyboard chain), so focused_surface still points at whatever
+   text input the user had active before invoking the popup. We
+   advertise Ctrl down via wl_keyboard.modifiers, replay key 47 (V)
+   press+release, then restore the prior modifier mask so the real
+   keyboard state stays consistent. Linux keycodes are used directly
+   (29 = KEY_LEFTCTRL, 47 = KEY_V) -- xkb adds the +8 X11 offset
+   inside wlr_seat. */
+static void clip_synth_ctrl_v(void) {
+	if (!seat || !seat->keyboard_state.focused_surface)
+		return;
+	struct wlr_keyboard *kb = wlr_seat_get_keyboard(seat);
+	if (!kb)
+		return;
+
+	struct wlr_keyboard_modifiers saved = kb->modifiers;
+	struct wlr_keyboard_modifiers ctrl = {
+		.depressed = WLR_MODIFIER_CTRL,
+		.latched = 0,
+		.locked = saved.locked,
+		.group = saved.group,
+	};
+	uint32_t t = (uint32_t)get_now_in_ms();
+
+	wlr_seat_keyboard_notify_modifiers(seat, &ctrl);
+	wlr_seat_keyboard_notify_key(seat, t, 47, WL_KEYBOARD_KEY_STATE_PRESSED);
+	wlr_seat_keyboard_notify_key(seat, t, 47, WL_KEYBOARD_KEY_STATE_RELEASED);
+	wlr_seat_keyboard_notify_modifiers(seat, &saved);
+}
+
+/* Synthesise a paste-from-history selection from the chosen row, close
+   popup, then fire Ctrl+V at the focused surface so the app pastes the
+   entry directly into wherever the user's text cursor was sitting. */
 static void clip_popup_pick(void) {
 	if (!clipboard.popup_open || clipboard.selected < 0 ||
 		clipboard.selected >= (int)clipboard.count) {
@@ -626,6 +659,7 @@ static void clip_popup_pick(void) {
 	clipboard.ignore_next = true;
 	wlr_seat_set_selection(seat, &src->base,
 						   wl_display_next_serial(dpy));
+	clip_synth_ctrl_v();
 }
 
 /* Toggle visibility — entry point bound to a keybind. */

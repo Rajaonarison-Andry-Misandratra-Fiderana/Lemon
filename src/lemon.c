@@ -1167,6 +1167,7 @@ static void recompute_render_tiers(void);
 #include "animation/common.h"
 #include "animation/layer.h"
 #include "animation/tag.h"
+#include "clipboard/clipboard.h"
 #include "dispatch/cycler.h"
 #include "dispatch/bind_define.h"
 #include "ext-protocol/all.h"
@@ -2363,6 +2364,32 @@ buttonpress(struct wl_listener *listener, void *data) {
 		if (locked)
 			break;
 
+		/* Clipboard popup eats left clicks: a click inside a row picks
+		   the entry (auto-paste); a click outside dismisses the popup
+		   without touching client focus. Both consume the event so the
+		   underlying window never sees it. */
+		if (clipboard.popup_open && clipboard.popup_tree) {
+			int32_t px = clipboard.popup_tree->node.x;
+			int32_t py = clipboard.popup_tree->node.y;
+			int32_t cx = (int32_t)cursor->x - px;
+			int32_t cy = (int32_t)cursor->y - py;
+			if (cx >= 0 && cx < clipboard.popup_w && cy >= 0 &&
+				cy < clipboard.popup_h) {
+				int32_t row = (cy - CLIP_POPUP_PAD) / CLIP_ROW_H;
+				if (row >= 0 && row < (int32_t)clipboard.rows_count &&
+					event->button == BTN_LEFT) {
+					clipboard.selected = row;
+					clip_popup_pick();
+				}
+				cursor_mode = CurNormal;
+				return;
+			} else {
+				clip_popup_close();
+				cursor_mode = CurNormal;
+				return;
+			}
+		}
+
 		xytonode(cursor->x, cursor->y, &surface, NULL, NULL, NULL, NULL);
 		if (toplevel_from_wlr_surface(surface, &c, &l) >= 0) {
 			if (c && c->scene->node.enabled &&
@@ -2576,6 +2603,7 @@ void cleanuplisteners(void) {
 /* Tear down xwayland, clients, child process, cursor, backend, and the scene graph. */
 void cleanup(void) {
 	surface_cache_save();
+	clip_cleanup();
 	cleanuplisteners();
 #ifdef XWAYLAND
 	wlr_xwayland_destroy(xwayland);
@@ -4312,6 +4340,56 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		event->state == WL_KEYBOARD_KEY_STATE_RELEASED &&
 		(keycode == 64 || keycode == 108)) {
 		window_cycler_commit();
+	}
+
+	if (clipboard.popup_open && !locked && group == kb_group &&
+		event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		for (i = 0; i < nsyms; i++) {
+			switch (syms[i]) {
+			case XKB_KEY_Down:
+			case XKB_KEY_Tab:
+				clip_popup_move(1);
+				handled = 1;
+				break;
+			case XKB_KEY_Up:
+			case XKB_KEY_ISO_Left_Tab:
+				clip_popup_move(-1);
+				handled = 1;
+				break;
+			case XKB_KEY_Page_Down:
+				clip_popup_move(5);
+				handled = 1;
+				break;
+			case XKB_KEY_Page_Up:
+				clip_popup_move(-5);
+				handled = 1;
+				break;
+			case XKB_KEY_Home:
+				clip_popup_move(-1000000);
+				handled = 1;
+				break;
+			case XKB_KEY_End:
+				clip_popup_move(1000000);
+				handled = 1;
+				break;
+			case XKB_KEY_Return:
+			case XKB_KEY_KP_Enter:
+				clip_popup_pick();
+				handled = 1;
+				break;
+			case XKB_KEY_Escape:
+				clip_popup_close();
+				handled = 1;
+				break;
+			default:
+				break;
+			}
+		}
+		if (handled) {
+			group->nsyms = 0;
+			wl_event_source_timer_update(group->key_repeat_source, 0);
+			return;
+		}
 	}
 
 	for (i = 0; i < nsyms; i++)
@@ -6181,8 +6259,15 @@ void setpsel(struct wl_listener *listener, void *data) {
 }
 
 void setsel(struct wl_listener *listener, void *data) {
-	
+
 	struct wlr_seat_request_set_selection_event *event = data;
+	if (clipboard.enabled) {
+		if (clipboard.ignore_next) {
+			clipboard.ignore_next = false;
+		} else if (event->source) {
+			clip_capture_from_source(event->source);
+		}
+	}
 	wlr_seat_set_selection(seat, event->source, event->serial);
 }
 
@@ -6333,6 +6418,12 @@ void setup(void) {
 	wlr_data_control_manager_v1_create(dpy);
 	wlr_data_device_manager_create(dpy);
 	wlr_primary_selection_v1_device_manager_create(dpy);
+	clipboard.enabled = config.clipboard_history;
+	clipboard.max_entries = (size_t)config.clipboard_history_max_entries;
+	clipboard.max_bytes_per_entry =
+		(size_t)config.clipboard_history_max_bytes;
+	if (clipboard.enabled)
+		clip_init();
 	wlr_viewporter_create(dpy);
 	wlr_single_pixel_buffer_manager_v1_create(dpy);
 	wlr_fractional_scale_manager_v1_create(dpy, 1);
