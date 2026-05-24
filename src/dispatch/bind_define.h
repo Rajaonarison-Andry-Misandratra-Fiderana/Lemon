@@ -612,11 +612,13 @@ int32_t restore_minimized(const Arg *arg) {
    - LEFT/RIGHT/UP: switch to the matching master-side layout (tile /
      right_tile / vertical_tile) and exchange the focused client with
      its spatial neighbor on that side, so the window visibly travels.
-   - DOWN: keep the current layout and exchange with the neighbor
-     below; the only layout that would place "master at the bottom"
-     does not exist, so we never switch on DOWN.
+   - DOWN: switch to vertical_tile (same as UP) and exchange with the
+     neighbor below. Result: focused window is pushed into the bottom
+     stack slot. Symmetric with UP, which promotes to master/top.
    When the current tag has 1 visible tiled client or less, no swap
-   is possible -- fall back to the vertical_scroller layout instead. */
+   is possible -- fall back to the vertical_scroller layout. If the
+   focused client already sits at the swipe edge, promote to the
+   matching scroller layout instead. */
 int32_t swipe_layout_dir(const Arg *arg) {
 	if (!selmon || !arg)
 		return 0;
@@ -626,7 +628,7 @@ int32_t swipe_layout_dir(const Arg *arg) {
 	case LEFT:  target = "tile"; break;
 	case RIGHT: target = "right_tile"; break;
 	case UP:    target = "vertical_tile"; break;
-	case DOWN:  target = NULL; break; /* keep current layout */
+	case DOWN:  target = "vertical_tile"; break;
 	default: return 0;
 	}
 
@@ -652,39 +654,40 @@ int32_t swipe_layout_dir(const Arg *arg) {
 			tiled++;
 	}
 
-	/* Decide layout target:
-	   - DOWN never switches layout.
-	   - Other directions normally pick the matching master-side
-	     layout (tile / right_tile / vertical_tile).
-	   - If the focused client already sits at the swipe-edge (no
-	     spatial neighbor in that direction) the user is "swiping
-	     past the wall" -- promote to the matching scroller layout
-	     (vertical_scroller for UP, scroller for LEFT/RIGHT).
-	   - With <=1 tiled client there is nothing to swap, fall back
-	     to vertical_scroller too. */
-	Client *neighbor = direction_select(&(Arg){.i = arg->i});
-	const char *picked = NULL;
-	if (arg->i != DOWN) {
-		if (tiled <= 1) {
-			picked = "vertical_scroller";
-		} else if (!neighbor) {
-			picked = (arg->i == UP) ? "vertical_scroller" : "scroller";
+	/* Pick the layout to land in:
+	   - tiled <= 1: nothing to swap, drop into vertical_scroller.
+	   - focused at swipe edge (direction_select == NULL): promote to
+	     the matching scroller (vertical_scroller for UP/DOWN,
+	     scroller for LEFT/RIGHT).
+	   - otherwise: the master-side layout for that direction. */
+	const char *picked;
+	if (tiled <= 1) {
+		picked = "vertical_scroller";
+	} else {
+		Client *peek = direction_select(&(Arg){.i = arg->i});
+		if (!peek) {
+			picked = (arg->i == UP || arg->i == DOWN) ? "vertical_scroller"
+													  : "scroller";
 		} else {
 			picked = target;
 		}
 	}
-	if (picked) {
-		for (int32_t i = 0; i < LENGTH(layouts); i++) {
-			if (strcmp(layouts[i].name, picked) == 0) {
-				selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
-				break;
-			}
+	for (int32_t i = 0; i < LENGTH(layouts); i++) {
+		if (strcmp(layouts[i].name, picked) == 0) {
+			selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
+			break;
 		}
 	}
 	arrange(selmon, false, false);
 
-	if (tiled > 1 && neighbor)
-		exchange_client(&(Arg){.i = arg->i});
+	/* After the new layout is committed, look for a spatial neighbor
+	   in the swipe direction. If one exists, swap to move the focused
+	   client toward it. */
+	if (tiled > 1) {
+		Client *neighbor = direction_select(&(Arg){.i = arg->i});
+		if (neighbor)
+			exchange_client(&(Arg){.i = arg->i});
+	}
 	printstatus();
 	return 0;
 }
