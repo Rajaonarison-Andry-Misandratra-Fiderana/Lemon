@@ -630,29 +630,39 @@ int32_t swipe_layout_dir(const Arg *arg) {
 	default: return 0;
 	}
 
-	if (selmon->visible_tiling_clients <= 1) {
-		for (int32_t i = 0; i < LENGTH(layouts); i++) {
-			if (strcmp(layouts[i].name, "vertical_scroller") == 0) {
-				selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
-				clear_fullscreen_and_maximized_state(selmon);
-				arrange(selmon, false, false);
-				printstatus();
-				break;
-			}
-		}
-		return 0;
+	clear_fullscreen_and_maximized_state(selmon);
+
+	/* Force every visible client on the current tag into the tile so a 4f
+	   swipe still works when the focused window is floating / fullscreen /
+	   maximized -- otherwise it would be excluded from exchange_client and
+	   the swipe would silently no-op. Count tiled clients here (after
+	   un-floating) since selmon->visible_tiling_clients is only refreshed
+	   by arrange() and would still hold the pre-swipe count. */
+	Client *fc = NULL;
+	uint32_t tiled = 0;
+	wl_list_for_each(fc, &clients, link) {
+		if (!fc || fc->mon != selmon || fc->iskilling || fc->isunglobal ||
+			client_is_unmanaged(fc) || client_is_x11_popup(fc))
+			continue;
+		if (!VISIBLEON(fc, selmon))
+			continue;
+		if (fc->isfloating)
+			setfloating(fc, 0);
+		if (!fc->isfloating && !fc->isminimized)
+			tiled++;
 	}
 
+	const char *picked = (tiled <= 1) ? "vertical_scroller" : target;
 	for (int32_t i = 0; i < LENGTH(layouts); i++) {
-		if (strcmp(layouts[i].name, target) == 0) {
+		if (strcmp(layouts[i].name, picked) == 0) {
 			selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
-			clear_fullscreen_and_maximized_state(selmon);
 			break;
 		}
 	}
 	arrange(selmon, false, false);
 
-	exchange_client(&(Arg){.i = arg->i});
+	if (tiled > 1)
+		exchange_client(&(Arg){.i = arg->i});
 	printstatus();
 	return 0;
 }
