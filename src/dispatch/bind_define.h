@@ -1829,7 +1829,6 @@ int32_t toggleoverview(const Arg *arg) {
 		wl_list_for_each(c, &clients, link) if (c && c->mon == selmon &&
 												!client_is_unmanaged(c) &&
 												!client_is_x11_popup(c) &&
-												!c->isminimized &&
 												!c->isunglobal) {
 			visible_client_number++;
 		}
@@ -1837,6 +1836,17 @@ int32_t toggleoverview(const Arg *arg) {
 			selmon->ovbk_current_tagset = selmon->tagset[selmon->seltags];
 			selmon->ovbk_prev_tagset = selmon->tagset[selmon->seltags ^ 1];
 			target = ~0 & TAGMASK;
+			/* Temporarily restore minimized clients so they appear in the
+			   overview grid; flagged so we re-minimize the unclicked ones on
+			   exit. */
+			wl_list_for_each(c, &clients, link) {
+				if (c && c->mon == selmon && c->isminimized &&
+					!c->iskilling && !c->isunglobal) {
+					c->ov_was_minimized = true;
+					c->tags = c->mini_restore_tag ? c->mini_restore_tag : 1;
+					client_pending_minimized_state(c, 0);
+				}
+			}
 		} else {
 			selmon->isoverview ^= 1;
 			return 0;
@@ -1862,11 +1872,21 @@ int32_t toggleoverview(const Arg *arg) {
 				overview_backup(c);
 		}
 	} else {
+		Client *picked = selmon->sel;
 		wl_list_for_each(c, &clients, link) {
 			if (c && c->mon == selmon && !c->iskilling &&
 				!client_is_unmanaged(c) && !c->isunglobal &&
 				!client_is_x11_popup(c) && client_surface(c)->mapped)
 				overview_restore(c, &(Arg){.ui = target});
+		}
+		/* Re-minimize every client that was unminimized only for overview
+		   display, except the one the user picked (now selmon->sel). */
+		wl_list_for_each(c, &clients, link) {
+			if (c && c->mon == selmon && c->ov_was_minimized) {
+				c->ov_was_minimized = false;
+				if (c != picked)
+					set_minimized(c);
+			}
 		}
 	}
 

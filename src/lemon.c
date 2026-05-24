@@ -436,6 +436,9 @@ struct Client {
 	bool is_pending_open_animation;
 	bool is_restoring_from_ov;
 	bool ov_anim;
+	/* True while this client is temporarily unminimized for overview display.
+	   Re-minimized on overview exit unless the user clicked it (selmon->sel). */
+	bool ov_was_minimized;
 	float scroller_proportion;
 	float stack_proportion;
 	float old_stack_proportion;
