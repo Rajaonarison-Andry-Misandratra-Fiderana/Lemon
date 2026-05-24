@@ -411,11 +411,6 @@ typedef struct {
 	   (e.g. 0 hugs a top bar, removing the extra top margin). */
 	int32_t scroller_top_gap;
 
-	/* Live 4-finger touchpad swipe: vertical = volume, horizontal = brightness,
-	   emitting swayosd steps continuously as the fingers move. */
-	int32_t touchpad_4f_osd;
-	int32_t touchpad_4f_step;
-
 	int32_t animation_spring;
 	double animation_spring_mass;
 	double animation_spring_tension;
@@ -1094,6 +1089,9 @@ FuncType parse_func_name(char *func_name, Arg *arg, char *arg_value,
 		(*arg).v = strdup(arg_value);
 	} else if (strcmp(func_name, "switch_layout") == 0) {
 		func = switch_layout;
+	} else if (strcmp(func_name, "swipe_layout_dir") == 0) {
+		func = swipe_layout_dir;
+		(*arg).i = parse_direction(arg_value);
 	} else if (strcmp(func_name, "togglefloating") == 0) {
 		func = togglefloating;
 	} else if (strcmp(func_name, "togglefullscreen") == 0) {
@@ -1452,10 +1450,6 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->debug_frametime = atoi(value);
 	} else if (strcmp(key, "scroller_top_gap") == 0) {
 		config->scroller_top_gap = atoi(value);
-	} else if (strcmp(key, "touchpad_4f_osd") == 0) {
-		config->touchpad_4f_osd = atoi(value);
-	} else if (strcmp(key, "touchpad_4f_step") == 0) {
-		config->touchpad_4f_step = atoi(value);
 	} else if (strcmp(key, "animation_spring") == 0) {
 		config->animation_spring = atoi(value);
 	} else if (strcmp(key, "animation_spring_mass") == 0) {
@@ -3383,8 +3377,6 @@ void override_config(void) {
 	config.debug_frametime = CLAMP_INT(config.debug_frametime, 0, 1);
 	if (config.scroller_top_gap < -1)
 		config.scroller_top_gap = -1;
-	config.touchpad_4f_osd = CLAMP_INT(config.touchpad_4f_osd, 0, 1);
-	config.touchpad_4f_step = CLAMP_INT(config.touchpad_4f_step, 5, 300);
 	config.animation_spring = CLAMP_INT(config.animation_spring, 0, 1);
 	config.animation_momentum = CLAMP_INT(config.animation_momentum, 0, 1);
 	config.animation_momentum_scale =
@@ -3581,8 +3573,6 @@ void set_value_default() {
 	config.subpixel_rgb = 0;
 	config.debug_frametime = 0;
 	config.scroller_top_gap = -1;
-	config.touchpad_4f_osd = 0;
-	config.touchpad_4f_step = 25;
 	config.animation_spring = 1;
 	config.animation_spring_mass = 1.0;
 	/* Slightly slow, smooth, near-critically damped (no bounce). c_crit for

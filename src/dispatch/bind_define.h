@@ -608,6 +608,36 @@ int32_t restore_minimized(const Arg *arg) {
 	return 0;
 }
 
+/* Action: auto-pick a layout that places the master area in arg->i direction
+   (LEFT=tile, RIGHT=right_tile, UP=vertical_tile), promote focused to master.
+   DOWN falls through to minimize the focused client. */
+int32_t swipe_layout_dir(const Arg *arg) {
+	if (!selmon || !arg)
+		return 0;
+
+	const char *target = NULL;
+	switch (arg->i) {
+	case LEFT:  target = "tile"; break;
+	case RIGHT: target = "right_tile"; break;
+	case UP:    target = "vertical_tile"; break;
+	case DOWN:  return minimized(&(Arg){0});
+	default: return 0;
+	}
+
+	for (int32_t i = 0; i < LENGTH(layouts); i++) {
+		if (strcmp(layouts[i].name, target) == 0) {
+			selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
+			clear_fullscreen_and_maximized_state(selmon);
+			break;
+		}
+	}
+
+	zoom(&(Arg){0});
+	arrange(selmon, false, false);
+	printstatus();
+	return 0;
+}
+
 /* Action: switch the current tag's layout to the one whose name matches arg->v. */
 int32_t setlayout(const Arg *arg) {
 	int32_t jk;

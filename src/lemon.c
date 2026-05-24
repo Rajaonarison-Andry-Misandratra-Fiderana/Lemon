@@ -1030,10 +1030,6 @@ static int32_t scroller_focus_lock = 0;
 static uint32_t swipe_fingers = 0;
 static double swipe_dx = 0;
 static double swipe_dy = 0;
-/* Live 4-finger OSD swipe: locked axis (0=undecided,1=vertical,2=horizontal)
-   and travel accumulated since the last emitted swayosd step. */
-static int32_t swipe_osd_axis = 0;
-static double swipe_osd_accum = 0;
 
 bool render_border = true;
 
@@ -2122,10 +2118,6 @@ int32_t ongesture(struct wlr_pointer_swipe_end_event *event) {
 	uint32_t mods, hard_mods;
 	const GestureBinding *g;
 
-	/* 4-finger swipe was consumed live by the OSD control; don't also fire an
-	   end-of-swipe gesture binding for it. */
-	if (config.touchpad_4f_osd && swipe_fingers == 4)
-		return 0;
 	uint32_t motion;
 	uint32_t adx = (int32_t)round(fabs(swipe_dx));
 	uint32_t ady = (int32_t)round(fabs(swipe_dy));
@@ -2169,45 +2161,9 @@ int32_t ongesture(struct wlr_pointer_swipe_end_event *event) {
 	return handled;
 }
 
-/* Run a swayosd-client command for the live 4-finger OSD control. */
-static void osd_emit(const char *cmd) { spawn_shell(&(Arg){.v = (void *)cmd}); }
-
-/* Drive volume continuously from a vertical 4-finger swipe, emitting one small
-   swayosd step per touchpad_4f_step of travel. Returns true if the swipe was
-   consumed for OSD control. */
-static bool swipe_osd_control(struct wlr_pointer_swipe_update_event *event) {
-	if (!config.touchpad_4f_osd || event->fingers != 4)
-		return false;
-
-	if (swipe_osd_axis == 0) {
-		if (fabs(swipe_dx) > 8.0 || fabs(swipe_dy) > 8.0)
-			swipe_osd_axis = fabs(swipe_dy) >= fabs(swipe_dx) ? 1 : 2;
-		else
-			return true; /* still deciding axis; consume but emit nothing */
-	}
-
-	if (swipe_osd_axis != 1)
-		return true; /* horizontal 4-finger swipe: consume, no action */
-
-	double step = config.touchpad_4f_step;
-	swipe_osd_accum += event->dy; /* vertical: up = louder */
-	while (swipe_osd_accum <= -step) {
-		osd_emit("swayosd-client --output-volume 2");
-		swipe_osd_accum += step;
-	}
-	while (swipe_osd_accum >= step) {
-		osd_emit("swayosd-client --output-volume -2");
-		swipe_osd_accum -= step;
-	}
-	return true;
-}
-
 /* Listener: pointer swipe begin — forward to pointer-gestures protocol. */
 void swipe_begin(struct wl_listener *listener, void *data) {
 	struct wlr_pointer_swipe_begin_event *event = data;
-
-	swipe_osd_axis = 0;
-	swipe_osd_accum = 0;
 
 	wlr_pointer_gestures_v1_send_swipe_begin(pointer_gestures, seat,
 											 event->time_msec, event->fingers);
@@ -2221,9 +2177,6 @@ void swipe_update(struct wl_listener *listener, void *data) {
 
 	swipe_dx += event->dx;
 	swipe_dy += event->dy;
-
-	if (swipe_osd_control(event))
-		return; /* consumed: do not forward 4-finger OSD swipe to clients */
 
 	wlr_pointer_gestures_v1_send_swipe_update(
 		pointer_gestures, seat, event->time_msec, event->dx, event->dy);
