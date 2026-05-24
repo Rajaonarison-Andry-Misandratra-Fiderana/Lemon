@@ -184,7 +184,11 @@ static int32_t window_cycler_build(Monitor *m) {
 	int32_t origin_x = m->m.x + (m->m.width - total_w) / 2;
 	int32_t origin_y = m->m.y + (m->m.height - total_h) / 2;
 
-	window_cycler.root = wlr_scene_tree_create(layers[LyrOverlay]);
+	/* LyrFadeOut: xytonode (src/fetch/common.h) explicitly skips this
+	   layer, so pointer hit-tests can't deref our snapshot scene_buffer
+	   nodes (they are not wlr_scene_surface backed -> NULL->surface
+	   crash in wlr_scene_surface_try_from_buffer). */
+	window_cycler.root = wlr_scene_tree_create(layers[LyrFadeOut]);
 	if (!window_cycler.root) {
 		free(window_cycler.clients);
 		free(window_cycler.borders);
