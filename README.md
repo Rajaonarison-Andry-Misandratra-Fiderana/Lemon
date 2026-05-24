@@ -23,7 +23,10 @@ possible latency and resource use while keeping a premium, spring-animated feel.
 - **Native idle & power** — built-in idle action (DPMS/suspend/hibernate),
   timed `idlebind`s, and smooth pre-idle backlight dimming.
 - **Focus-aware QoS** — renices/ioprios the focused app up, background down.
-- **Touchpad gestures** — multi-finger swipes, live 4-finger volume OSD.
+- **Touchpad gestures** — 3-finger directional swipes auto-pick a layout and
+  promote the focused window to master (down = minimize); 4-finger swipes swap
+  the focused window with its neighbor in any layout. Minimized windows
+  reappear in the overview and restore on click.
 - **Latency-first** — realtime scheduling, `mlockall`, `posix_spawn`, explicit
   GPU sync, render tiers, single-pixel-buffer, capped malloc arenas (~100 MB).
 

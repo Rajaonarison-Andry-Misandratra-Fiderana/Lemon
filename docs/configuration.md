@@ -111,8 +111,6 @@ on save. Binds and rules accept comma-separated fields. The annotated example is
 | `trackpad_scroll_factor` / `axis_scroll_factor` | Scroll multiplier. |
 | `scroll_method`, `scroll_button`, `click_method`, `button_map`, `send_events_mode` | libinput config. |
 | `swipe_min_threshold` | Min swipe distance for a gesture. |
-| `touchpad_4f_osd` | 0/1 — vertical 4-finger swipe → live volume OSD. |
-| `touchpad_4f_step` | px of travel per swayosd step (smaller = more sensitive). |
 | `enable_floating_snap` / `snap_distance` | Edge snapping for floats. |
 | `enable_hotarea` / `hotarea_corner` / `hotarea_size` | Hot-corner overview trigger. |
 
@@ -180,4 +178,20 @@ Fields: `name` (regex), `make`, `model`, `serial`, `width`, `height`, `refresh`,
 
 Dispatch names map to the actions in `src/dispatch/bind_define.h` (e.g. `spawn`,
 `spawn_shell`, `killclient`, `togglefloating`, `view`, `tag`, `focusstack`,
-`focusdir`, `moveresize`, `setlayout`, `toggleoverview`, `reload_config`, …).
+`focusdir`, `moveresize`, `setlayout`, `swipe_layout_dir`, `exchange_client`,
+`toggleoverview`, `reload_config`, …).
+
+### Gesture conventions
+
+The default config wires touchpad swipes as:
+
+- **3-finger left / right / up** → `swipe_layout_dir` — auto-switch to the
+  layout that places the master area on that side (`tile` / `right_tile` /
+  `vertical_tile`) and promote the focused client to master.
+- **3-finger down** → `minimized` — minimize the focused client.
+- **4-finger any direction** → `exchange_client` — swap the focused client
+  with the tiled neighbor on that side; works in every layout.
+
+Minimized clients reappear inside the overview and are restored on
+left-click; clients you don't pick during an overview pass are
+re-minimized on exit.
