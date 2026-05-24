@@ -608,20 +608,39 @@ int32_t restore_minimized(const Arg *arg) {
 	return 0;
 }
 
-/* Action: auto-pick a layout that places the master area in arg->i direction
-   (LEFT=tile, RIGHT=right_tile, UP=vertical_tile), promote focused to master.
-   DOWN falls through to minimize the focused client. */
+/* Action: swipe the focused window in arg->i direction.
+   - LEFT/RIGHT/UP: switch to the matching master-side layout (tile /
+     right_tile / vertical_tile) and exchange the focused client with its
+     spatial neighbor on that side, so the window visibly travels.
+   - DOWN: minimize the focused client (no layout matches "master on bottom").
+   When the current tag has 1 visible tiled client or less, no swap is
+   possible -- fall back to the vertical_scroller layout instead. */
 int32_t swipe_layout_dir(const Arg *arg) {
 	if (!selmon || !arg)
 		return 0;
+
+	if (arg->i == DOWN)
+		return minimized(&(Arg){0});
 
 	const char *target = NULL;
 	switch (arg->i) {
 	case LEFT:  target = "tile"; break;
 	case RIGHT: target = "right_tile"; break;
 	case UP:    target = "vertical_tile"; break;
-	case DOWN:  return minimized(&(Arg){0});
 	default: return 0;
+	}
+
+	if (selmon->visible_tiling_clients <= 1) {
+		for (int32_t i = 0; i < LENGTH(layouts); i++) {
+			if (strcmp(layouts[i].name, "vertical_scroller") == 0) {
+				selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
+				clear_fullscreen_and_maximized_state(selmon);
+				arrange(selmon, false, false);
+				printstatus();
+				break;
+			}
+		}
+		return 0;
 	}
 
 	for (int32_t i = 0; i < LENGTH(layouts); i++) {
@@ -631,9 +650,9 @@ int32_t swipe_layout_dir(const Arg *arg) {
 			break;
 		}
 	}
-
-	zoom(&(Arg){0});
 	arrange(selmon, false, false);
+
+	exchange_client(&(Arg){.i = arg->i});
 	printstatus();
 	return 0;
 }
