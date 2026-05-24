@@ -654,28 +654,53 @@ int32_t swipe_layout_dir(const Arg *arg) {
 			tiled++;
 	}
 
-	/* Pick the layout to land in:
+	/* Stepwise layout calibration:
 	   - tiled <= 1: nothing to swap, drop into vertical_scroller.
-	   - focused at swipe edge (direction_select == NULL): promote to
-	     the matching scroller (vertical_scroller for UP/DOWN,
-	     scroller for LEFT/RIGHT).
-	   - otherwise: the master-side layout for that direction. */
-	const char *picked;
+	   - Already in a scroller: stay; only exchange runs below.
+	   - Not yet in the target master-side layout: STEP 1 = switch to
+	     target. The exchange below then puts the focused client on
+	     the swipe side. Scroller promotion is deferred to the next
+	     swipe.
+	   - Already in target layout: STEP 2 = if direction_select sees
+	     no spatial neighbor (focused sits at swipe edge), promote to
+	     the matching scroller; otherwise stay in target and let
+	     exchange swap the focused client toward the edge.
+	   This means: from a horizontal `tile` with focused master on
+	   the left, 4f up needs two swipes to reach vertical_scroller --
+	   first to switch to vertical_tile and land focused on top,
+	   second to promote. Going through DOWN from the top takes two
+	   as well (DOWN sends focused to the bottom first). UP from the
+	   top in vertical_tile, or DOWN from the bottom, is a single
+	   swipe straight into the scroller. */
+	const Layout *cur_layout =
+		selmon->pertag->ltidxs[selmon->pertag->curtag];
+	const char *cur_name = cur_layout ? cur_layout->name : "";
+	bool in_scroller = (strcmp(cur_name, "vertical_scroller") == 0 ||
+						strcmp(cur_name, "scroller") == 0);
+	bool in_target = (strcmp(cur_name, target) == 0);
+
+	const char *picked = NULL;
 	if (tiled <= 1) {
 		picked = "vertical_scroller";
+	} else if (in_scroller) {
+		picked = NULL; /* keep current scroller layout */
+	} else if (!in_target) {
+		picked = target; /* step 1: switch to master-side layout */
 	} else {
 		Client *peek = direction_select(&(Arg){.i = arg->i});
 		if (!peek) {
 			picked = (arg->i == UP || arg->i == DOWN) ? "vertical_scroller"
 													  : "scroller";
 		} else {
-			picked = target;
+			picked = target; /* stay, exchange will move focused */
 		}
 	}
-	for (int32_t i = 0; i < LENGTH(layouts); i++) {
-		if (strcmp(layouts[i].name, picked) == 0) {
-			selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
-			break;
+	if (picked) {
+		for (int32_t i = 0; i < LENGTH(layouts); i++) {
+			if (strcmp(layouts[i].name, picked) == 0) {
+				selmon->pertag->ltidxs[selmon->pertag->curtag] = &layouts[i];
+				break;
+			}
 		}
 	}
 	arrange(selmon, false, false);
