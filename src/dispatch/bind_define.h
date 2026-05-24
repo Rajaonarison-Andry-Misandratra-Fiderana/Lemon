@@ -683,7 +683,18 @@ int32_t swipe_layout_dir(const Arg *arg) {
 	if (tiled <= 1) {
 		picked = "vertical_scroller";
 	} else if (in_scroller) {
-		picked = NULL; /* keep current scroller layout */
+		/* Swiping cross-axis to the scroller's primary axis exits
+		   back to the matching master-side layout, with the focused
+		   client repositioned by the exchange step below:
+		     - vertical_scroller -> tile / right_tile on LEFT/RIGHT
+		     - scroller          -> vertical_tile on UP/DOWN
+		   Same-axis swipes keep the scroller layout and just exchange
+		   the focused client with its neighbor. */
+		bool is_vertical = (strcmp(cur_name, "vertical_scroller") == 0);
+		bool cross_axis = is_vertical
+							  ? (arg->i == LEFT || arg->i == RIGHT)
+							  : (arg->i == UP || arg->i == DOWN);
+		picked = cross_axis ? target : NULL;
 	} else if (!in_target) {
 		picked = target; /* step 1: switch to master-side layout */
 	} else {
