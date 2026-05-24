@@ -3834,6 +3834,12 @@ void focusclient(Client *c, int32_t lift) {
 	if (locked)
 		return;
 
+	/* The window cycler may have hoisted the last picked tile to LyrTop
+	   so it would draw over floating siblings. Drop it back into its
+	   native layer as soon as focus moves anywhere else. */
+	if (cycler_raised_tile && cycler_raised_tile != c)
+		cycler_drop_raised_tile();
+
 	if (c && c->iskilling)
 		return;
 
@@ -6877,6 +6883,10 @@ void unmapnotify(struct wl_listener *listener, void *data) {
 			}
 		}
 	}
+	/* Clear the cycler-raised tile pointer if its window is about to
+	   tear down -- avoid reparenting a freed scene tree later. */
+	if (cycler_raised_tile == c)
+		cycler_raised_tile = NULL;
 
 	/* Persist last-known size for this app_id before the client tears down,
 	   so the next launch can configure straight to the right geometry. */

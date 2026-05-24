@@ -19,6 +19,25 @@ static struct WindowCycler {
 	Monitor *mon;
 } window_cycler;
 
+/* Last tiled client the cycler promoted to LyrTop so it draws above
+   floating siblings. Reset back to LyrTile by focusclient as soon as
+   the user focuses something else. */
+static Client *cycler_raised_tile = NULL;
+
+/* Drop the cycler's promoted tile back into its native layer
+   (LyrFloating clients keep LyrTop, tiled return to LyrTile). Safe to
+   call when nothing is raised. */
+static void cycler_drop_raised_tile(void) {
+	if (!cycler_raised_tile)
+		return;
+	Client *t = cycler_raised_tile;
+	cycler_raised_tile = NULL;
+	if (t->iskilling || !t->scene)
+		return;
+	wlr_scene_node_reparent(&t->scene->node,
+							layers[t->isfloating ? LyrTop : LyrTile]);
+}
+
 /* Recursively scale a snapshot subtree by (sx, sy): each node's
    position and any sized payload (buffer dst, rect/shadow size) is
    multiplied by the scale factor so the rendered subtree shrinks in
@@ -102,7 +121,11 @@ static void window_cycler_destroy(void) {
 	memset(&window_cycler, 0, sizeof(window_cycler));
 }
 
-/* Focus the client at window_cycler.index, then destroy the overlay. */
+/* Focus the client at window_cycler.index, then destroy the overlay.
+   If the picked client is tiled, hoist its scene subtree into LyrTop
+   so it visibly draws on top of any floating sibling -- selected
+   window always lands in the foreground regardless of tile/float
+   state. The next focusclient() call clears the promotion. */
 static void window_cycler_commit(void) {
 	if (!window_cycler.active)
 		return;
@@ -111,7 +134,14 @@ static void window_cycler_commit(void) {
 		target = window_cycler.clients[window_cycler.index];
 	window_cycler_destroy();
 	if (target && client_surface(target)->mapped) {
+		cycler_drop_raised_tile();
 		focusclient(target, 1);
+		if (!target->isfloating && !target->isfullscreen &&
+			!target->ismaximizescreen && target->scene) {
+			wlr_scene_node_reparent(&target->scene->node, layers[LyrTop]);
+			wlr_scene_node_raise_to_top(&target->scene->node);
+			cycler_raised_tile = target;
+		}
 		if (config.warpcursor)
 			warp_cursor(target);
 	}
