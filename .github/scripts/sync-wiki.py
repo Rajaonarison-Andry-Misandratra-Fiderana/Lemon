@@ -21,7 +21,7 @@ def collect_all_files() -> list[tuple[Path, str]]:
         return sorted(directory.glob("*.md"))
 
     for src in from_dir(DOCS_DIR):
-        files.append((src, "Home" if src.stem == "index" else src.stem))
+        files.append((src, "Home" if src.stem in ("index", "README") else src.stem))
 
     for subdir in sorted(DOCS_DIR.iterdir()):
         if subdir.is_dir():
