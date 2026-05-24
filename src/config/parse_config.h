@@ -399,6 +399,13 @@ typedef struct {
 	   0 = disabled (default). Honored only on xdg clients. */
 	int32_t client_hibernate_idle_secs;
 
+	/* Lock the compositor's pages in RAM via mlockall to avoid page-
+	   fault stalls on the input event loop. Off shrinks resident set
+	   by tens of MB on systems with swap (idle libs and cold GPU
+	   pages can be evicted) at the cost of occasional latency
+	   hiccups under memory pressure. Default 1 (latency-first). */
+	int32_t mlock_pages;
+
 	/* Built-in clipboard history. RAM-only ring, flushed on every restart.
 	   max_entries caps the count; max_bytes caps the size of each entry
 	   (anything larger is dropped before storage). */
@@ -1526,6 +1533,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->syncobj_enable = atoi(value);
 	} else if (strcmp(key, "client_hibernate_idle_secs") == 0) {
 		config->client_hibernate_idle_secs = atoi(value);
+	} else if (strcmp(key, "mlock_pages") == 0) {
+		config->mlock_pages = atoi(value);
 	} else if (strcmp(key, "tag_suspend_hidden") == 0) {
 		config->tag_suspend_hidden = atoi(value);
 	} else if (strcmp(key, "subpixel_rgb") == 0) {
@@ -3487,6 +3496,7 @@ void override_config(void) {
 	config.tag_suspend_hidden = CLAMP_INT(config.tag_suspend_hidden, 0, 1);
 	config.client_hibernate_idle_secs =
 		CLAMP_INT(config.client_hibernate_idle_secs, 0, 86400);
+	config.mlock_pages = CLAMP_INT(config.mlock_pages, 0, 1);
 	config.subpixel_rgb = CLAMP_INT(config.subpixel_rgb, 0, 1);
 	config.debug_frametime = CLAMP_INT(config.debug_frametime, 0, 1);
 	if (config.scroller_top_gap < -1)
@@ -3711,9 +3721,14 @@ void set_value_default() {
 	config.focus_qos_bg_nice = 10;
 	config.tag_suspend_hidden = 0;
 	config.client_hibernate_idle_secs = 0;
+	config.mlock_pages = 1;
 	config.clipboard_history = 1;
-	config.clipboard_history_max_entries = 100;
-	config.clipboard_history_max_bytes = 1 * 1024 * 1024;
+	/* Smaller defaults than before (was 100 * 1 MiB worst case): a 50
+	   * 256 KiB ring keeps the typical real-world history (mostly tiny
+	   text snippets) and bounds worst-case RAM at ~12 MB even if
+	   someone copies a wall of base64. */
+	config.clipboard_history_max_entries = 50;
+	config.clipboard_history_max_bytes = 256 * 1024;
 	config.subpixel_rgb = 0;
 	config.debug_frametime = 0;
 	config.scroller_top_gap = -1;

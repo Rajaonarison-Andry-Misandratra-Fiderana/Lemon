@@ -7959,16 +7959,22 @@ int32_t main(int32_t argc, char *argv[]) {
 		}
 	}
 
-	/* Step 2: lock current pages in RAM so a page fault never stalls the input
-	   event loop. MCL_ONFAULT keeps it cheap for sparse mappings. Ignored if
-	   process lacks CAP_IPC_LOCK / RLIMIT_MEMLOCK. */
-#ifdef MCL_ONFAULT
-	(void)mlockall(MCL_CURRENT | MCL_ONFAULT);
-#else
-	(void)mlockall(MCL_CURRENT);
-#endif
-
 	setup();
+
+	/* Step 2 (deferred until after parse_config so mlock_pages is
+	   readable): lock current pages in RAM so a page fault never
+	   stalls the input event loop. MCL_ONFAULT keeps it cheap for
+	   sparse mappings. Ignored if the process lacks CAP_IPC_LOCK /
+	   RLIMIT_MEMLOCK. Skipped entirely when mlock_pages=0, which
+	   trades input-latency-on-pressure for ~tens of MB of resident
+	   memory savings. */
+	if (config.mlock_pages) {
+#ifdef MCL_ONFAULT
+		(void)mlockall(MCL_CURRENT | MCL_ONFAULT);
+#else
+		(void)mlockall(MCL_CURRENT);
+#endif
+	}
 	run(startup_cmd);
 	cleanup();
 	return EXIT_SUCCESS;
