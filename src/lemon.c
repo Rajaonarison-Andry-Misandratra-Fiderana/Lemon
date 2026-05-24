@@ -4342,6 +4342,38 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		window_cycler_commit();
 	}
 
+	/* While the cycler is open, Alt+Q closes the highlighted window
+	   in-place: the user keeps Alt held, the overlay rebuilds without
+	   the killed entry, and they can keep tabbing through the rest.
+	   Captured before the normal keybinding pass so the regular
+	   killclient bind doesn't also fire on the underlying window. */
+	if (window_cycler.active && !locked && group == kb_group &&
+		event->state == WL_KEYBOARD_KEY_STATE_PRESSED &&
+		(mods & WLR_MODIFIER_ALT)) {
+		bool kill_hit = false;
+		for (i = 0; i < nsyms; i++) {
+			if (syms[i] == XKB_KEY_q || syms[i] == XKB_KEY_Q) {
+				kill_hit = true;
+				break;
+			}
+		}
+		if (kill_hit) {
+			Client *target = NULL;
+			if (window_cycler.index >= 0 &&
+				window_cycler.index < window_cycler.count)
+				target = window_cycler.clients[window_cycler.index];
+			Monitor *m = window_cycler.mon;
+			window_cycler_destroy();
+			if (target && !target->iskilling)
+				pending_kill_client(target);
+			if (m && window_cycler_build(m) <= 1)
+				window_cycler_destroy();
+			group->nsyms = 0;
+			wl_event_source_timer_update(group->key_repeat_source, 0);
+			return;
+		}
+	}
+
 	if (clipboard.popup_open && !locked && group == kb_group &&
 		event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
 		for (i = 0; i < nsyms; i++) {
