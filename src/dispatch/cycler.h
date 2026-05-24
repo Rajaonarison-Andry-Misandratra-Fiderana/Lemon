@@ -228,9 +228,12 @@ static int32_t window_cycler_build(Monitor *m) {
 			wlr_scene_node_set_position(&window_cycler.tiles[k]->node, tx,
 										ty);
 
-		/* Snapshot the live client subtree, then walk it recursively to
-		   scale every node down to fit thumb_w x thumb_h. preserve_ratio
-		   so apps stay un-stretched. */
+		/* Snapshot the live client subtree. scene_node_snapshot() flattens
+		   the source tree into a single layer of buffer children whose
+		   positions are the source's accumulated *monitor-space*
+		   coordinates (starts at lx=0 and adds source node->x = geom.x).
+		   Strip the client's origin off each top-level child so the
+		   snapshot's local coordinates start at (0,0), then scale. */
 		struct wlr_scene_tree *snap =
 			wlr_scene_tree_snapshot(&cl->scene->node, window_cycler.root);
 		if (!snap)
@@ -243,8 +246,11 @@ static int32_t window_cycler_build(Monitor *m) {
 		double sy = (double)thumb_h / ch;
 		double s = sx < sy ? sx : sy;
 
+		int32_t ox = cl->geom.x;
+		int32_t oy = cl->geom.y;
 		struct wlr_scene_node *child = NULL;
 		wl_list_for_each(child, &snap->children, link) {
+			wlr_scene_node_set_position(child, child->x - ox, child->y - oy);
 			window_cycler_scale_node(child, s, s);
 		}
 
