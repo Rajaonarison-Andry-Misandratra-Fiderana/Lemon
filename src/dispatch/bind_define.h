@@ -652,13 +652,27 @@ int32_t swipe_layout_dir(const Arg *arg) {
 			tiled++;
 	}
 
-	/* DOWN never switches layout; other directions fall back to
-	   vertical_scroller when there is nothing to swap with. */
+	/* Decide layout target:
+	   - DOWN never switches layout.
+	   - Other directions normally pick the matching master-side
+	     layout (tile / right_tile / vertical_tile).
+	   - If the focused client already sits at the swipe-edge (no
+	     spatial neighbor in that direction) the user is "swiping
+	     past the wall" -- promote to the matching scroller layout
+	     (vertical_scroller for UP, scroller for LEFT/RIGHT).
+	   - With <=1 tiled client there is nothing to swap, fall back
+	     to vertical_scroller too. */
+	Client *neighbor = direction_select(&(Arg){.i = arg->i});
 	const char *picked = NULL;
-	if (tiled <= 1 && arg->i != DOWN)
-		picked = "vertical_scroller";
-	else if (arg->i != DOWN)
-		picked = target;
+	if (arg->i != DOWN) {
+		if (tiled <= 1) {
+			picked = "vertical_scroller";
+		} else if (!neighbor) {
+			picked = (arg->i == UP) ? "vertical_scroller" : "scroller";
+		} else {
+			picked = target;
+		}
+	}
 	if (picked) {
 		for (int32_t i = 0; i < LENGTH(layouts); i++) {
 			if (strcmp(layouts[i].name, picked) == 0) {
@@ -669,7 +683,7 @@ int32_t swipe_layout_dir(const Arg *arg) {
 	}
 	arrange(selmon, false, false);
 
-	if (tiled > 1)
+	if (tiled > 1 && neighbor)
 		exchange_client(&(Arg){.i = arg->i});
 	printstatus();
 	return 0;
