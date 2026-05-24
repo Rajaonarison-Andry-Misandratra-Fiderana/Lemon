@@ -272,72 +272,88 @@ static int32_t window_cycler_build(Monitor *m) {
 			wlr_scene_node_set_position(&window_cycler.tiles[k]->node, tx,
 										ty);
 
-		/* Snapshot the live client subtree. scene_node_snapshot() flattens
-		   the source into a single layer of buffer children whose
-		   positions are the source's accumulated monitor-space
-		   coordinates (starts at lx=0 then adds c->scene->node.x, which
-		   may be the *animated* position rather than c->geom.x).
-		   Compute a bounding box over the snapshot's children instead
-		   of trusting cl->geom -- handles mid-animation, scroller
-		   off-screen positions, maximized, fullscreen, etc. */
+		/* Snapshot the live client subtree. scene_node_snapshot()
+		   flattens the source into a single layer of buffer children
+		   whose positions start at c->scene->node.x/y (the actual
+		   on-screen position, possibly animated). Use the client's
+		   intended geom dimensions for the scale factor -- a
+		   bounding-box pass over snapshot children was unreliable
+		   because:
+		     - single-pixel-buffer placeholders report tiny natural
+		       sizes (1x1) but live inside a full-size client; their
+		       bbox dragged the scale to 1, blowing every other buffer
+		       up out of the tile;
+		     - popups / sub-surfaces (decorations, tooltips) that
+		       briefly stick outside the client extend the bbox the
+		       other way, pushing the real surface contents off
+		       center;
+		     - some clients leave dst_width == 0 with a transformed
+		       wlr_buffer whose natural width is the wrong axis.
+
+		   Stable approach: subtract the snapshot's origin
+		   (c->scene->node.x/y), scale by min(thumb_w / geom_w,
+		   thumb_h / geom_h), then disable every snapshot child that
+		   is fully outside [0, geom.w] x [0, geom.h] so stray popup
+		   buffers can't render past the tile border. */
 		struct wlr_scene_tree *snap =
 			wlr_scene_tree_snapshot(&cl->scene->node, window_cycler.root);
 		if (!snap)
 			continue;
 		window_cycler.thumbs[k] = snap;
 
-		int32_t min_x = INT32_MAX, min_y = INT32_MAX;
-		int32_t max_x = INT32_MIN, max_y = INT32_MIN;
+		int32_t cw = cl->geom.width > 0 ? cl->geom.width : 1;
+		int32_t ch = cl->geom.height > 0 ? cl->geom.height : 1;
+		double sx = (double)thumb_w / cw;
+		double sy = (double)thumb_h / ch;
+		double s = sx < sy ? sx : sy;
+		int32_t ox = cl->scene->node.x;
+		int32_t oy = cl->scene->node.y;
+
+		bool any_visible = false;
 		struct wlr_scene_node *child = NULL;
 		wl_list_for_each(child, &snap->children, link) {
-			if (child->type != WLR_SCENE_NODE_BUFFER)
-				continue;
-			struct wlr_scene_buffer *buf = wlr_scene_buffer_from_node(child);
-			int32_t bw = buf->dst_width;
-			int32_t bh = buf->dst_height;
-			if ((bw == 0 || bh == 0) && buf->buffer) {
-				if (bw == 0)
-					bw = buf->buffer->width;
-				if (bh == 0)
-					bh = buf->buffer->height;
+			int32_t local_x = child->x - ox;
+			int32_t local_y = child->y - oy;
+
+			int32_t bw = 0, bh = 0;
+			if (child->type == WLR_SCENE_NODE_BUFFER) {
+				struct wlr_scene_buffer *buf =
+					wlr_scene_buffer_from_node(child);
+				bw = buf->dst_width;
+				bh = buf->dst_height;
+				if ((bw == 0 || bh == 0) && buf->buffer) {
+					if (bw == 0)
+						bw = buf->buffer->width;
+					if (bh == 0)
+						bh = buf->buffer->height;
+				}
 			}
-			if (bw <= 0 || bh <= 0)
+
+			bool inside = (bw > 0 && bh > 0 &&
+						   local_x + bw > 0 && local_y + bh > 0 &&
+						   local_x < cw && local_y < ch);
+			if (!inside) {
+				wlr_scene_node_set_enabled(child, false);
 				continue;
-			if (child->x < min_x)
-				min_x = child->x;
-			if (child->y < min_y)
-				min_y = child->y;
-			if (child->x + bw > max_x)
-				max_x = child->x + bw;
-			if (child->y + bh > max_y)
-				max_y = child->y + bh;
+			}
+			any_visible = true;
+			wlr_scene_node_set_position(child, local_x, local_y);
+			window_cycler_scale_node(child, s, s);
 		}
 
-		int32_t bbox_w = max_x - min_x;
-		int32_t bbox_h = max_y - min_y;
-		if (bbox_w <= 0 || bbox_h <= 0) {
-			/* No usable buffer in this snapshot -- happens for clients
-			   that just unmapped or have not produced a frame yet.
-			   Leave the dark backdrop tile in place and move on. */
+		if (!any_visible) {
+			/* Client has no buffer overlapping its own geom -- e.g.
+			   it just mapped, or it's a single-pixel placeholder.
+			   Drop the snapshot, keep the dark backdrop tile. */
 			wlr_scene_node_destroy(&snap->node);
 			window_cycler.thumbs[k] = NULL;
 			continue;
 		}
 
-		double sx = (double)thumb_w / bbox_w;
-		double sy = (double)thumb_h / bbox_h;
-		double s = sx < sy ? sx : sy;
-
-		wl_list_for_each(child, &snap->children, link) {
-			wlr_scene_node_set_position(child, child->x - min_x,
-										child->y - min_y);
-			window_cycler_scale_node(child, s, s);
-		}
-
-		/* Center the scaled snapshot inside its tile. The preserved
+		/* Center the scaled snapshot inside its tile. Preserving the
 		   aspect ratio leaves slack along the shorter axis. */
-		int32_t draw_w = (int32_t)(bbox_w * s);
-		int32_t draw_h = (int32_t)(bbox_h * s);
+		int32_t draw_w = (int32_t)(cw * s);
+		int32_t draw_h = (int32_t)(ch * s);
 		int32_t offx = tx + (thumb_w - draw_w) / 2;
 		int32_t offy = ty + (thumb_h - draw_h) / 2;
 		wlr_scene_node_set_position(&snap->node, offx, offy);
