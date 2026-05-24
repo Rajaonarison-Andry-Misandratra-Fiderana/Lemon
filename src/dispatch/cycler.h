@@ -24,9 +24,11 @@ static struct WindowCycler {
    the user focuses something else. */
 static Client *cycler_raised_tile = NULL;
 
-/* Drop the cycler's promoted tile back into its native layer
-   (LyrFloating clients keep LyrTop, tiled return to LyrTile). Safe to
-   call when nothing is raised. */
+/* Drop the cycler's promoted client back into its native layer. Mirror
+   the layer-routing used by setmaximizescreen / setfullscreen /
+   setfloating: overlay -> LyrOverlay, floating or fullscreen -> LyrTop,
+   plain tiled / maximized -> LyrTile. Safe to call when nothing is
+   raised. */
 static void cycler_drop_raised_tile(void) {
 	if (!cycler_raised_tile)
 		return;
@@ -34,8 +36,12 @@ static void cycler_drop_raised_tile(void) {
 	cycler_raised_tile = NULL;
 	if (t->iskilling || !t->scene)
 		return;
-	wlr_scene_node_reparent(&t->scene->node,
-							layers[t->isfloating ? LyrTop : LyrTile]);
+	int32_t target_layer = LyrTile;
+	if (t->isoverlay)
+		target_layer = LyrOverlay;
+	else if (t->isfloating || t->isfullscreen)
+		target_layer = LyrTop;
+	wlr_scene_node_reparent(&t->scene->node, layers[target_layer]);
 }
 
 /* Recursively scale a snapshot subtree by (sx, sy): each node's
@@ -136,8 +142,12 @@ static void window_cycler_commit(void) {
 	if (target && client_surface(target)->mapped) {
 		cycler_drop_raised_tile();
 		focusclient(target, 1);
-		if (!target->isfloating && !target->isfullscreen &&
-			!target->ismaximizescreen && target->scene) {
+		/* Always hoist into LyrTop so the picked window draws over any
+		   floating / maximized / fullscreen sibling. The next focus
+		   change snaps it back via cycler_drop_raised_tile(). Overlay
+		   clients keep their LyrOverlay parent (they already draw on
+		   top of everything). */
+		if (target->scene && !target->isoverlay) {
 			wlr_scene_node_reparent(&target->scene->node, layers[LyrTop]);
 			wlr_scene_node_raise_to_top(&target->scene->node);
 			cycler_raised_tile = target;
@@ -263,35 +273,71 @@ static int32_t window_cycler_build(Monitor *m) {
 										ty);
 
 		/* Snapshot the live client subtree. scene_node_snapshot() flattens
-		   the source tree into a single layer of buffer children whose
-		   positions are the source's accumulated *monitor-space*
-		   coordinates (starts at lx=0 and adds source node->x = geom.x).
-		   Strip the client's origin off each top-level child so the
-		   snapshot's local coordinates start at (0,0), then scale. */
+		   the source into a single layer of buffer children whose
+		   positions are the source's accumulated monitor-space
+		   coordinates (starts at lx=0 then adds c->scene->node.x, which
+		   may be the *animated* position rather than c->geom.x).
+		   Compute a bounding box over the snapshot's children instead
+		   of trusting cl->geom -- handles mid-animation, scroller
+		   off-screen positions, maximized, fullscreen, etc. */
 		struct wlr_scene_tree *snap =
 			wlr_scene_tree_snapshot(&cl->scene->node, window_cycler.root);
 		if (!snap)
 			continue;
 		window_cycler.thumbs[k] = snap;
 
-		int32_t cw = cl->geom.width > 0 ? cl->geom.width : thumb_w;
-		int32_t ch = cl->geom.height > 0 ? cl->geom.height : thumb_h;
-		double sx = (double)thumb_w / cw;
-		double sy = (double)thumb_h / ch;
-		double s = sx < sy ? sx : sy;
-
-		int32_t ox = cl->geom.x;
-		int32_t oy = cl->geom.y;
+		int32_t min_x = INT32_MAX, min_y = INT32_MAX;
+		int32_t max_x = INT32_MIN, max_y = INT32_MIN;
 		struct wlr_scene_node *child = NULL;
 		wl_list_for_each(child, &snap->children, link) {
-			wlr_scene_node_set_position(child, child->x - ox, child->y - oy);
+			if (child->type != WLR_SCENE_NODE_BUFFER)
+				continue;
+			struct wlr_scene_buffer *buf = wlr_scene_buffer_from_node(child);
+			int32_t bw = buf->dst_width;
+			int32_t bh = buf->dst_height;
+			if ((bw == 0 || bh == 0) && buf->buffer) {
+				if (bw == 0)
+					bw = buf->buffer->width;
+				if (bh == 0)
+					bh = buf->buffer->height;
+			}
+			if (bw <= 0 || bh <= 0)
+				continue;
+			if (child->x < min_x)
+				min_x = child->x;
+			if (child->y < min_y)
+				min_y = child->y;
+			if (child->x + bw > max_x)
+				max_x = child->x + bw;
+			if (child->y + bh > max_y)
+				max_y = child->y + bh;
+		}
+
+		int32_t bbox_w = max_x - min_x;
+		int32_t bbox_h = max_y - min_y;
+		if (bbox_w <= 0 || bbox_h <= 0) {
+			/* No usable buffer in this snapshot -- happens for clients
+			   that just unmapped or have not produced a frame yet.
+			   Leave the dark backdrop tile in place and move on. */
+			wlr_scene_node_destroy(&snap->node);
+			window_cycler.thumbs[k] = NULL;
+			continue;
+		}
+
+		double sx = (double)thumb_w / bbox_w;
+		double sy = (double)thumb_h / bbox_h;
+		double s = sx < sy ? sx : sy;
+
+		wl_list_for_each(child, &snap->children, link) {
+			wlr_scene_node_set_position(child, child->x - min_x,
+										child->y - min_y);
 			window_cycler_scale_node(child, s, s);
 		}
 
-		/* Center the scaled snapshot inside its tile (preserve aspect
-		   ratio means there is leftover space along one axis). */
-		int32_t draw_w = (int32_t)(cw * s);
-		int32_t draw_h = (int32_t)(ch * s);
+		/* Center the scaled snapshot inside its tile. The preserved
+		   aspect ratio leaves slack along the shorter axis. */
+		int32_t draw_w = (int32_t)(bbox_w * s);
+		int32_t draw_h = (int32_t)(bbox_h * s);
 		int32_t offx = tx + (thumb_w - draw_w) / 2;
 		int32_t offy = ty + (thumb_h - draw_h) / 2;
 		wlr_scene_node_set_position(&snap->node, offx, offy);
