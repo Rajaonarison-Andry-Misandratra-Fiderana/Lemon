@@ -265,6 +265,13 @@ typedef struct {
 	uint32_t hotarea_corner;
 	uint32_t enable_hotarea;
 	uint32_t ov_tab_mode;
+	/* Modifier under which the alt-tab cycler is held open and
+	   committed. 0 = Alt (keysyms Alt_L/Alt_R, WLR_MODIFIER_ALT),
+	   1 = Super (Super_L/Super_R, WLR_MODIFIER_LOGO). */
+	uint32_t cycler_modifier;
+	/* Toggle number badges above each cycler thumbnail. When enabled,
+	   Mod+<digit> jumps directly to that window. */
+	uint32_t cycler_show_badges;
 	int32_t overviewgappi;
 	int32_t overviewgappo;
 	int32_t overview_dim;
@@ -1839,6 +1846,26 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->enable_hotarea = atoi(value);
 	} else if (strcmp(key, "ov_tab_mode") == 0) {
 		config->ov_tab_mode = atoi(value);
+	} else if (strcmp(key, "cycler_modifier") == 0) {
+		/* Case-insensitive match against known modifier names; fall
+		   through to atoi() for "0"/"1" so users can still write
+		   numeric values. */
+		char vlow[16];
+		size_t vl = 0;
+		while (vl < sizeof(vlow) - 1 && value[vl]) {
+			vlow[vl] = (char)tolower((unsigned char)value[vl]);
+			vl++;
+		}
+		vlow[vl] = '\0';
+		if (strcmp(vlow, "super") == 0 || strcmp(vlow, "logo") == 0 ||
+			strcmp(vlow, "win") == 0)
+			config->cycler_modifier = 1;
+		else if (strcmp(vlow, "alt") == 0 || strcmp(vlow, "mod1") == 0)
+			config->cycler_modifier = 0;
+		else
+			config->cycler_modifier = atoi(value);
+	} else if (strcmp(key, "cycler_show_badges") == 0) {
+		config->cycler_show_badges = atoi(value);
 	} else if (strcmp(key, "overviewgappi") == 0) {
 		config->overviewgappi = atoi(value);
 	} else if (strcmp(key, "overviewgappo") == 0) {
@@ -3497,6 +3524,8 @@ void override_config(void) {
 	config.hotarea_corner = CLAMP_INT(config.hotarea_corner, 0, 3);
 	config.enable_hotarea = CLAMP_INT(config.enable_hotarea, 0, 1);
 	config.ov_tab_mode = CLAMP_INT(config.ov_tab_mode, 0, 1);
+	config.cycler_modifier = CLAMP_INT(config.cycler_modifier, 0, 1);
+	config.cycler_show_badges = CLAMP_INT(config.cycler_show_badges, 0, 1);
 	config.overviewgappi = CLAMP_INT(config.overviewgappi, 0, 1000);
 	config.overviewgappo = CLAMP_INT(config.overviewgappo, 0, 1000);
 	config.overview_dim = CLAMP_INT(config.overview_dim, 0, 1);
@@ -3711,6 +3740,8 @@ void set_value_default() {
 	config.capslock = 0;
 
 	config.ov_tab_mode = 0;
+	config.cycler_modifier = 0;
+	config.cycler_show_badges = 1;
 	config.hotarea_size = 10;
 	config.hotarea_corner = BOTTOM_LEFT;
 	config.enable_hotarea = 1;
@@ -3766,11 +3797,13 @@ void set_value_default() {
 	config.mlock_pages = 1;
 	config.clipboard_history = 1;
 	/* Smaller defaults than before (was 100 * 1 MiB worst case): a 50
-	   * 256 KiB ring keeps the typical real-world history (mostly tiny
-	   text snippets) and bounds worst-case RAM at ~12 MB even if
-	   someone copies a wall of base64. */
+	   * 256 KiB used to be the per-entry cap but that was sized for
+	   text only; with image clipboard support enabled, raise the
+	   default to 8 MiB so typical screenshots (PNG ~1-3 MiB) round-trip.
+	   Worst-case RAM at 50 entries x 8 MiB = 400 MiB; bump the entry
+	   count down rather than the byte cap if that matters. */
 	config.clipboard_history_max_entries = 50;
-	config.clipboard_history_max_bytes = 256 * 1024;
+	config.clipboard_history_max_bytes = 8 * 1024 * 1024;
 	/* Stock palette — same look the cairo paint had hardcoded before
 	   it moved into config. matugen users overwrite these with their
 	   material-you colors via a template. */

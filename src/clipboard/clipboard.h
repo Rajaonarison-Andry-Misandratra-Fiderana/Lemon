@@ -30,6 +30,13 @@
 #define CLIP_MIME_TEXT "text/plain"
 #define CLIP_MIME_UTF8_ALT "UTF8_STRING"
 #define CLIP_MIME_STRING "STRING"
+#define CLIP_MIME_PNG "image/png"
+#define CLIP_MIME_JPEG "image/jpeg"
+#define CLIP_MIME_JPG "image/jpg"
+#define CLIP_MIME_BMP "image/bmp"
+#define CLIP_MIME_WEBP "image/webp"
+#define CLIP_MIME_GIF "image/gif"
+#define CLIP_MIME_TIFF "image/tiff"
 
 #define CLIP_PREVIEW_CHARS 80
 #define CLIP_PREVIEW_BYTES 320
@@ -44,6 +51,9 @@ typedef struct {
 	uint8_t *data;
 	size_t len;
 	uint32_t ts_ms;
+	/* Heap-owned MIME string. NULL means "text" (legacy entries). Any
+	   non-NULL value starting with "image/" is treated as an image. */
+	char *mime;
 	char preview[CLIP_PREVIEW_BYTES];
 } ClipEntry;
 
@@ -55,6 +65,8 @@ typedef struct ClipboardCapture {
 	size_t len;
 	size_t cap_limit;
 	uint32_t ts_ms;
+	/* Heap-owned MIME copy attached to the freshly-captured bytes. */
+	char *mime;
 } ClipboardCapture;
 
 typedef struct {
@@ -203,6 +215,186 @@ static struct wlr_buffer *clip_render_row(int w, int h, const char *text,
 	return &b->base;
 }
 
+/* ---- image preview decode ---- */
+
+typedef struct {
+	const uint8_t *data;
+	size_t len;
+	size_t off;
+} ClipPngReader;
+
+static cairo_status_t clip_png_read_cb(void *closure, unsigned char *out,
+									   unsigned int n) {
+	ClipPngReader *r = closure;
+	if (r->off + n > r->len)
+		return CAIRO_STATUS_READ_ERROR;
+	memcpy(out, r->data + r->off, n);
+	r->off += n;
+	return CAIRO_STATUS_SUCCESS;
+}
+
+/* Decode a PNG byte buffer via cairo's streaming PNG loader. Returns
+   NULL when bytes aren't a valid PNG -- caller falls back to a text
+   placeholder. Guards against malformed inputs by verifying the 8-byte
+   PNG magic before invoking cairo (libpng has been observed to abort
+   on certain truncated or non-PNG payloads). */
+static cairo_surface_t *clip_decode_png(const uint8_t *data, size_t len) {
+	if (!data || len < 8)
+		return NULL;
+	static const uint8_t png_magic[8] = {0x89, 0x50, 0x4E, 0x47,
+										 0x0D, 0x0A, 0x1A, 0x0A};
+	if (memcmp(data, png_magic, 8) != 0)
+		return NULL;
+	ClipPngReader r = {data, len, 0};
+	cairo_surface_t *s =
+		cairo_image_surface_create_from_png_stream(clip_png_read_cb, &r);
+	if (!s)
+		return NULL;
+	if (cairo_surface_status(s) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(s);
+		return NULL;
+	}
+	return s;
+}
+
+/* Render an image-entry row. Decoding the PNG into a thumbnail is the
+   expensive step (typical PNG payload sits on the multi-MiB side); we
+   only spend it when the row is actually selected. Non-selected image
+   rows render the placeholder + label, which keeps popup_open cost
+   constant in the number of stored entries even when the history is
+   dominated by screenshots. */
+static struct wlr_buffer *clip_render_image_row(int w, int h,
+												const ClipEntry *e,
+												bool selected,
+												bool decode_image) {
+	cairo_surface_t *surf =
+		cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+	if (cairo_surface_status(surf) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(surf);
+		return NULL;
+	}
+	cairo_t *cr = cairo_create(surf);
+
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_source_rgba(cr, 0, 0, 0, 0);
+	cairo_paint(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+	if (selected) {
+		cairo_set_source_rgba(cr, config.clipboard_selected[0],
+							  config.clipboard_selected[1],
+							  config.clipboard_selected[2],
+							  config.clipboard_selected[3]);
+		cairo_rectangle(cr, 0, 0, w, h);
+		cairo_fill(cr);
+	}
+
+	int thumb_w = h - 6;
+	int thumb_h = h - 6;
+	int thumb_x = 3;
+	int thumb_y = 3;
+	int img_w = 0, img_h = 0;
+
+	cairo_surface_t *img = NULL;
+	if (decode_image && e->mime && strcmp(e->mime, CLIP_MIME_PNG) == 0)
+		img = clip_decode_png(e->data, e->len);
+
+	if (img) {
+		img_w = cairo_image_surface_get_width(img);
+		img_h = cairo_image_surface_get_height(img);
+		double sx = (double)thumb_w / img_w;
+		double sy = (double)thumb_h / img_h;
+		double s = sx < sy ? sx : sy;
+		int draw_w = (int)(img_w * s);
+		int draw_h = (int)(img_h * s);
+		int dx = thumb_x + (thumb_w - draw_w) / 2;
+		int dy = thumb_y + (thumb_h - draw_h) / 2;
+		cairo_save(cr);
+		cairo_translate(cr, dx, dy);
+		cairo_scale(cr, s, s);
+		cairo_set_source_surface(cr, img, 0, 0);
+		cairo_paint(cr);
+		cairo_restore(cr);
+		cairo_surface_destroy(img);
+	} else {
+		/* No decoded preview: paint a dark rounded placeholder square. */
+		cairo_set_source_rgba(cr, 0.18, 0.18, 0.22, 1.0);
+		cairo_rectangle(cr, thumb_x, thumb_y, thumb_w, thumb_h);
+		cairo_fill(cr);
+	}
+
+	/* Text label to the right of the thumbnail. */
+	const char *fmt = e->mime ? e->mime : "image";
+	if (strncmp(fmt, "image/", 6) == 0)
+		fmt += 6;
+	char label[160];
+	if (img_w > 0 && img_h > 0) {
+		double kib = e->len / 1024.0;
+		if (kib >= 1024.0)
+			snprintf(label, sizeof(label), "%s %dx%d, %.1f MiB", fmt, img_w,
+					 img_h, kib / 1024.0);
+		else
+			snprintf(label, sizeof(label), "%s %dx%d, %.1f KiB", fmt, img_w,
+					 img_h, kib);
+	} else {
+		double kib = e->len / 1024.0;
+		if (kib >= 1024.0)
+			snprintf(label, sizeof(label), "%s %.1f MiB", fmt, kib / 1024.0);
+		else
+			snprintf(label, sizeof(label), "%s %.1f KiB", fmt, kib);
+	}
+
+	PangoLayout *layout = pango_cairo_create_layout(cr);
+	PangoFontDescription *desc =
+		pango_font_description_from_string("Sans 11");
+	pango_layout_set_font_description(layout, desc);
+	pango_font_description_free(desc);
+	pango_layout_set_text(layout, label, -1);
+	pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END);
+	int label_x = thumb_x + thumb_w + CLIP_ROW_PAD_X;
+	pango_layout_set_width(layout, (w - label_x - CLIP_ROW_PAD_X) * PANGO_SCALE);
+	pango_layout_set_single_paragraph_mode(layout, TRUE);
+
+	int tw, th;
+	pango_layout_get_pixel_size(layout, &tw, &th);
+	cairo_move_to(cr, label_x, (h - th) / 2);
+	if (selected)
+		cairo_set_source_rgba(cr, config.clipboard_text_selected[0],
+							  config.clipboard_text_selected[1],
+							  config.clipboard_text_selected[2],
+							  config.clipboard_text_selected[3]);
+	else
+		cairo_set_source_rgba(cr, config.clipboard_text[0],
+							  config.clipboard_text[1],
+							  config.clipboard_text[2],
+							  config.clipboard_text[3]);
+	pango_cairo_show_layout(cr, layout);
+
+	g_object_unref(layout);
+	cairo_destroy(cr);
+	cairo_surface_flush(surf);
+
+	int stride = cairo_image_surface_get_stride(surf);
+	size_t total = (size_t)stride * (size_t)h;
+	uint8_t *pixels = malloc(total);
+	if (!pixels) {
+		cairo_surface_destroy(surf);
+		return NULL;
+	}
+	memcpy(pixels, cairo_image_surface_get_data(surf), total);
+	cairo_surface_destroy(surf);
+
+	ClipTextBuffer *b = calloc(1, sizeof(*b));
+	if (!b) {
+		free(pixels);
+		return NULL;
+	}
+	wlr_buffer_init(&b->base, &clip_text_buffer_impl, w, h);
+	b->data = pixels;
+	b->stride = (size_t)stride;
+	return &b->base;
+}
+
 /* ---- entry storage helpers ---- */
 
 /* Build a single-line, length-capped UTF-8 preview from a raw byte buffer. */
@@ -224,8 +416,28 @@ static void clip_make_preview(char *out, const uint8_t *data, size_t len) {
 /* Release the bytes owned by one ClipEntry. */
 static void clip_entry_free(ClipEntry *e) {
 	free(e->data);
+	free(e->mime);
 	e->data = NULL;
+	e->mime = NULL;
 	e->len = 0;
+}
+
+/* True when the entry's MIME indicates an image (image/...). */
+static inline bool clip_entry_is_image(const ClipEntry *e) {
+	return e && e->mime && strncmp(e->mime, "image/", 6) == 0;
+}
+
+/* Build a human-readable preview line for an image entry. */
+static void clip_image_preview(char *out, const char *mime, size_t len) {
+	const char *fmt = mime ? mime : "image";
+	if (strncmp(fmt, "image/", 6) == 0)
+		fmt += 6;
+	double kib = len / 1024.0;
+	if (kib >= 1024.0)
+		snprintf(out, CLIP_PREVIEW_BYTES, "[Image %s, %.1f MiB]", fmt,
+				 kib / 1024.0);
+	else
+		snprintf(out, CLIP_PREVIEW_BYTES, "[Image %s, %.1f KiB]", fmt, kib);
 }
 
 /* Drop every stored entry. */
@@ -237,16 +449,23 @@ static void clip_history_clear(void) {
 }
 
 /* Insert a freshly captured byte buffer at the front, dedup vs head,
- * drop the tail beyond max_entries. Takes ownership of data. */
-static void clip_history_push(uint8_t *data, size_t len) {
+ * drop the tail beyond max_entries. Takes ownership of data and mime.
+ * mime may be NULL for legacy text entries. */
+static void clip_history_push(uint8_t *data, size_t len, char *mime) {
 	if (len == 0) {
 		free(data);
+		free(mime);
 		return;
 	}
 	if (clipboard.count > 0) {
 		ClipEntry *head = &clipboard.entries[0];
-		if (head->len == len && memcmp(head->data, data, len) == 0) {
+		bool same_kind =
+			(head->mime == NULL && mime == NULL) ||
+			(head->mime && mime && strcmp(head->mime, mime) == 0);
+		if (same_kind && head->len == len &&
+			memcmp(head->data, data, len) == 0) {
 			free(data);
+			free(mime);
 			return;
 		}
 	}
@@ -258,8 +477,12 @@ static void clip_history_push(uint8_t *data, size_t len) {
 			clipboard.count * sizeof(ClipEntry));
 	clipboard.entries[0].data = data;
 	clipboard.entries[0].len = len;
+	clipboard.entries[0].mime = mime;
 	clipboard.entries[0].ts_ms = get_now_in_ms();
-	clip_make_preview(clipboard.entries[0].preview, data, len);
+	if (mime && strncmp(mime, "image/", 6) == 0)
+		clip_image_preview(clipboard.entries[0].preview, mime, len);
+	else
+		clip_make_preview(clipboard.entries[0].preview, data, len);
 	clipboard.count++;
 }
 
@@ -273,17 +496,21 @@ static void clip_capture_destroy(ClipboardCapture *cap) {
 		close(cap->fd);
 	}
 	free(cap->buf);
+	free(cap->mime);
 	free(cap);
 }
 
 static void clip_capture_finish(ClipboardCapture *cap, bool aborted) {
 	if (!aborted && cap->len > 0 && cap->len <= cap->cap_limit) {
-		wlr_log(WLR_DEBUG, "clipboard: captured %zu bytes (history=%zu)",
-				cap->len, clipboard.count + 1);
+		wlr_log(WLR_DEBUG,
+				"clipboard: captured %zu bytes mime=%s (history=%zu)", cap->len,
+				cap->mime ? cap->mime : "(text)", clipboard.count + 1);
 		uint8_t *take = cap->buf;
 		size_t len = cap->len;
+		char *mime = cap->mime;
 		cap->buf = NULL;
-		clip_history_push(take, len);
+		cap->mime = NULL;
+		clip_history_push(take, len, mime);
 	} else {
 		wlr_log(WLR_DEBUG,
 				"clipboard: capture aborted=%d len=%zu cap_limit=%zu", aborted,
@@ -361,38 +588,62 @@ static int clip_capture_readable(int fd, uint32_t mask, void *data) {
 	return 0;
 }
 
-/* Pick the best text-ish MIME exposed by a selection source. */
-static const char *clip_pick_text_mime(struct wlr_data_source *src) {
-	const char *best = NULL;
+/* Pick the best supported MIME (text or image) exposed by a selection
+   source. Returns NULL if the source advertises nothing we capture.
+   Sets *out_is_image to true when the chosen mime is image/...
+   Preference: PNG > other image formats > text/plain;charset=utf-8 >
+   text/plain > UTF8_STRING > STRING. Apps usually advertise multiple
+   mimes for the same payload; we treat image and text selections as
+   distinct entry kinds so paste replays the right format. */
+static const char *clip_pick_capture_mime(struct wlr_data_source *src,
+										  bool *out_is_image) {
+	const char *best_text = NULL;
+	const char *best_image = NULL;
 	const char **m;
 	wl_array_for_each(m, &src->mime_types) {
+		if (strcmp(*m, CLIP_MIME_PNG) == 0)
+			return (*out_is_image = true), *m;
+		if (!best_image && (strcmp(*m, CLIP_MIME_JPEG) == 0 ||
+							strcmp(*m, CLIP_MIME_JPG) == 0 ||
+							strcmp(*m, CLIP_MIME_BMP) == 0 ||
+							strcmp(*m, CLIP_MIME_WEBP) == 0 ||
+							strcmp(*m, CLIP_MIME_GIF) == 0 ||
+							strcmp(*m, CLIP_MIME_TIFF) == 0))
+			best_image = *m;
 		if (strcmp(*m, CLIP_MIME_UTF8) == 0) {
-			return *m;
+			best_text = *m;
+			break;
 		}
-		if (!best && strcmp(*m, CLIP_MIME_TEXT) == 0) {
-			best = *m;
-		}
-		if (!best && strcmp(*m, CLIP_MIME_UTF8_ALT) == 0) {
-			best = *m;
-		}
-		if (!best && strcmp(*m, CLIP_MIME_STRING) == 0) {
-			best = *m;
-		}
+		if (!best_text && strcmp(*m, CLIP_MIME_TEXT) == 0)
+			best_text = *m;
+		if (!best_text && strcmp(*m, CLIP_MIME_UTF8_ALT) == 0)
+			best_text = *m;
+		if (!best_text && strcmp(*m, CLIP_MIME_STRING) == 0)
+			best_text = *m;
 	}
-	return best;
+	if (best_image) {
+		*out_is_image = true;
+		return best_image;
+	}
+	*out_is_image = false;
+	return best_text;
 }
 
-/* Begin an async pipe-read of the selection's text bytes. */
+/* Begin an async pipe-read of the selection's bytes. Captures text and
+   image selections; entry MIME is recorded on the capture struct so
+   the eventual history push tags the entry correctly. */
 static void clip_capture_from_source(struct wlr_data_source *src) {
 	if (!clipboard.enabled || !src) {
 		return;
 	}
-	const char *mime = clip_pick_text_mime(src);
+	bool is_image = false;
+	const char *mime = clip_pick_capture_mime(src, &is_image);
 	if (!mime) {
-		wlr_log(WLR_DEBUG, "clipboard: no text mime in selection source");
+		wlr_log(WLR_DEBUG, "clipboard: no supported mime in selection source");
 		return;
 	}
-	wlr_log(WLR_DEBUG, "clipboard: capturing selection mime=%s", mime);
+	wlr_log(WLR_DEBUG, "clipboard: capturing selection mime=%s image=%d", mime,
+			is_image);
 	int p[2];
 	if (pipe(p) < 0) {
 		return;
@@ -411,6 +662,7 @@ static void clip_capture_from_source(struct wlr_data_source *src) {
 	}
 	cap->fd = p[0];
 	cap->cap_limit = clipboard.max_bytes_per_entry;
+	cap->mime = strdup(mime);
 	cap->src = wl_event_loop_add_fd(event_loop, p[0],
 									WL_EVENT_READABLE | WL_EVENT_HANGUP,
 									clip_capture_readable, cap);
@@ -433,17 +685,100 @@ typedef struct {
 	char *mime;
 } ClipPasteSource;
 
-/* Stream our cached bytes to whichever client requested the paste. */
+/* In-flight async paste: keeps writing whatever didn't fit in the
+   pipe buffer when clip_paste_send was first called. Decoupled from
+   ClipPasteSource because the source may get destroyed before the
+   paste drains (the seat replaces our selection while a slow client
+   still holds the pipe). */
+typedef struct {
+	int fd;
+	uint8_t *data;
+	size_t len;
+	size_t off;
+	struct wl_event_source *src;
+} ClipPasteFlight;
+
+static void clip_paste_flight_destroy(ClipPasteFlight *f) {
+	if (f->src)
+		wl_event_source_remove(f->src);
+	if (f->fd >= 0)
+		close(f->fd);
+	free(f->data);
+	free(f);
+}
+
+/* Event loop callback: pipe is writable again, push more bytes. */
+static int clip_paste_writable(int fd, uint32_t mask, void *data) {
+	ClipPasteFlight *f = data;
+	if (mask & (WL_EVENT_ERROR | WL_EVENT_HANGUP)) {
+		clip_paste_flight_destroy(f);
+		return 0;
+	}
+	while (f->off < f->len) {
+		ssize_t n = write(fd, f->data + f->off, f->len - f->off);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			if (errno == EAGAIN)
+				return 0;
+			clip_paste_flight_destroy(f);
+			return 0;
+		}
+		f->off += (size_t)n;
+	}
+	clip_paste_flight_destroy(f);
+	return 0;
+}
+
+/* Stream our cached bytes to whichever client requested the paste.
+   Switched to non-blocking + async drain so a large image payload
+   doesn't deadlock the main event loop waiting for a slow consumer
+   to drain its end of the pipe. Text-sized writes still go through
+   in one shot via the synchronous prologue. */
 static void clip_paste_send(struct wlr_data_source *base, const char *mime_type,
 							int32_t fd) {
 	(void)mime_type;
 	ClipPasteSource *src = wl_container_of(base, src, base);
+	int fl = fcntl(fd, F_GETFL, 0);
+	if (fl >= 0)
+		fcntl(fd, F_SETFL, fl | O_NONBLOCK);
+
 	size_t off = 0;
 	while (off < src->len) {
 		ssize_t n = write(fd, src->data + off, src->len - off);
 		if (n < 0) {
-			if (errno == EINTR) {
+			if (errno == EINTR)
 				continue;
+			if (errno == EAGAIN) {
+				/* Pipe buffer full -- copy the remainder and hand
+				   it to the event loop. The source struct can be
+				   destroyed before the paste completes; the flight
+				   owns its own data copy so that is safe. */
+				ClipPasteFlight *f = calloc(1, sizeof(*f));
+				if (!f) {
+					close(fd);
+					return;
+				}
+				f->fd = fd;
+				f->len = src->len - off;
+				f->data = malloc(f->len);
+				if (!f->data) {
+					free(f);
+					close(fd);
+					return;
+				}
+				memcpy(f->data, src->data + off, f->len);
+				f->off = 0;
+				f->src = wl_event_loop_add_fd(
+					event_loop, fd,
+					WL_EVENT_WRITABLE | WL_EVENT_HANGUP,
+					clip_paste_writable, f);
+				if (!f->src) {
+					free(f->data);
+					free(f);
+					close(fd);
+				}
+				return;
 			}
 			break;
 		}
@@ -465,7 +800,11 @@ static const struct wlr_data_source_impl clip_paste_impl = {
 	.destroy = clip_paste_destroy,
 };
 
-/* Build a self-owned wlr_data_source carrying entry's bytes, advertise text MIMEs. */
+/* Build a self-owned wlr_data_source carrying entry's bytes. For text
+   entries we advertise all of the historical text MIME aliases so any
+   paste target finds a match. For image entries we advertise only the
+   captured MIME -- claiming text/plain on raw PNG bytes would let a
+   text paste fall through and dump binary into the focused field. */
 static ClipPasteSource *clip_paste_source_from_entry(const ClipEntry *e) {
 	ClipPasteSource *src = calloc(1, sizeof(*src));
 	if (!src) {
@@ -478,15 +817,22 @@ static ClipPasteSource *clip_paste_source_from_entry(const ClipEntry *e) {
 	}
 	memcpy(src->data, e->data, e->len);
 	src->len = e->len;
-	src->mime = strdup(CLIP_MIME_UTF8);
+	bool is_image = clip_entry_is_image(e);
+	src->mime = strdup(is_image ? e->mime : CLIP_MIME_UTF8);
 	wlr_data_source_init(&src->base, &clip_paste_impl);
 
-	const char *mimes[] = {CLIP_MIME_UTF8, CLIP_MIME_TEXT, CLIP_MIME_UTF8_ALT,
-						   CLIP_MIME_STRING};
-	for (size_t i = 0; i < sizeof(mimes) / sizeof(mimes[0]); i++) {
+	if (is_image) {
 		char **slot = wl_array_add(&src->base.mime_types, sizeof(char *));
-		if (slot) {
-			*slot = strdup(mimes[i]);
+		if (slot)
+			*slot = strdup(e->mime);
+	} else {
+		const char *mimes[] = {CLIP_MIME_UTF8, CLIP_MIME_TEXT,
+							   CLIP_MIME_UTF8_ALT, CLIP_MIME_STRING};
+		for (size_t i = 0; i < sizeof(mimes) / sizeof(mimes[0]); i++) {
+			char **slot =
+				wl_array_add(&src->base.mime_types, sizeof(char *));
+			if (slot)
+				*slot = strdup(mimes[i]);
 		}
 	}
 	return src;
@@ -529,14 +875,21 @@ static void clip_popup_refresh_rows(void) {
 			clipboard.rows[i].buf_ref = NULL;
 		}
 		int inner_w = clipboard.popup_w - 2 * CLIP_POPUP_PAD;
-		const char *text =
-			clipboard.count > 0
-				? clipboard.entries[i].preview
-				: "(clipboard history empty -- copy something to fill it)";
 		bool selected =
 			clipboard.count > 0 && (int)i == clipboard.selected;
-		struct wlr_buffer *buf =
-			clip_render_row(inner_w, CLIP_ROW_H, text, selected);
+		struct wlr_buffer *buf = NULL;
+		if (clipboard.count > 0 && clip_entry_is_image(&clipboard.entries[i])) {
+			buf = clip_render_image_row(inner_w, CLIP_ROW_H,
+										&clipboard.entries[i], selected,
+										selected);
+		}
+		if (!buf) {
+			const char *text =
+				clipboard.count > 0
+					? clipboard.entries[i].preview
+					: "(clipboard history empty -- copy something to fill it)";
+			buf = clip_render_row(inner_w, CLIP_ROW_H, text, selected);
+		}
 		if (!buf) {
 			continue;
 		}

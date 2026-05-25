@@ -374,6 +374,11 @@ struct Client {
 	struct wl_list link;
 	struct wl_list flink;
 	struct wl_list fadeout_link;
+	/* Per-monitor index hook. Linked into mon->clients by setmon();
+	   unlinked on monitor change and on destroy. Independent from
+	   link/flink so existing global-list iteration is untouched. */
+	struct wl_list mon_link;
+	bool mon_link_active;
 	union {
 		struct wlr_xdg_surface *xdg;
 		struct wlr_xwayland_surface *xwayland;
@@ -586,6 +591,11 @@ typedef struct {
 
 struct Monitor {
 	struct wl_list link;
+	/* Per-monitor index of Client mon_link nodes (the global clients
+	   list still hosts c->link). Lets rendermon iterate only the
+	   clients painted on this output instead of doing an O(N*M_outputs)
+	   filtered walk of the global list every frame. */
+	struct wl_list clients;
 	struct wlr_output *wlr_output;
 	struct wlr_scene_output *scene_output;
 	struct wlr_output_state pending;
@@ -880,6 +890,7 @@ static void set_rect_size(struct wlr_scene_rect *rect, int32_t width,
 						  int32_t height);
 static Client *center_tiled_select(Monitor *m);
 static void handlecursoractivity(void);
+static void idle_notify_throttled(bool force);
 static int32_t hidecursor(void *data);
 static bool check_hit_no_border(Client *c);
 static void reset_keyboard_layout(void);
@@ -2085,9 +2096,9 @@ axisnotify(struct wl_listener *listener, void *data) {
 	int32_t ji;
 	uint32_t adir;
 	double target_scroll_factor;
-	
+
 	handlecursoractivity();
-	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+	idle_notify_throttled(false);
 
 	if (check_trackpad_disabled(event->pointer)) {
 		return;
@@ -2362,7 +2373,7 @@ buttonpress(struct wl_listener *listener, void *data) {
 		seat->pointer_state.focused_surface;
 
 	handlecursoractivity();
-	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+	idle_notify_throttled(false);
 
 	if (check_trackpad_disabled(event->pointer)) {
 		return;
@@ -2780,6 +2791,13 @@ void closemon(Monitor *m) {
 					c->foreign_toplevel = NULL;
 				}
 
+				/* Last monitor going away. setmon's per-monitor index
+				   would short-circuit (oldmon == new == NULL), so we
+				   unlink manually before clearing the pointer. */
+				if (c->mon_link_active) {
+					wl_list_remove(&c->mon_link);
+					c->mon_link_active = false;
+				}
 				c->mon = NULL;
 			} else {
 				client_change_mon(c, selmon);
@@ -3449,6 +3467,7 @@ void createmon(struct wl_listener *listener, void *data) {
 	m->wlr_output->data = m;
 
 	wl_list_init(&m->dwl_ipc_outputs);
+	wl_list_init(&m->clients);
 
 	for (i = 0; i < LENGTH(m->layers); i++)
 		wl_list_init(&m->layers[i]);
@@ -3893,6 +3912,10 @@ destroynotify(struct wl_listener *listener, void *data) {
 		wl_list_remove(&c->commit.link);
 		wl_list_remove(&c->map.link);
 		wl_list_remove(&c->unmap.link);
+	}
+	if (c->mon_link_active) {
+		wl_list_remove(&c->mon_link);
+		c->mon_link_active = false;
 	}
 	free(c);
 }
@@ -4392,7 +4415,11 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 	int32_t handled = 0;
 	uint32_t mods = wlr_keyboard_get_modifiers(&group->wlr_group->keyboard);
 
-	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
+	/* Notify only when no cycler-style overlay swallowed the key; the
+	   cycler dismiss path already reset idle timers via the modifier
+	   release. Throttled to 250 ms anyway. */
+	if (!window_cycler.active)
+		idle_notify_throttled(false);
 	reset_idle_timers();
 
 	if (config.ov_tab_mode && !locked && group == kb_group &&
@@ -4405,13 +4432,67 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	/* Commit window cycler selection on Alt release (keycodes 64=Alt_L,
-	   108=Alt_R). The cycler is opened by the window_cycler_next/prev
-	   action and held visible while Alt stays down. */
+	/* Commit window cycler selection on the configured modifier's
+	   release. cycler_modifier=0 → Alt (keycodes 64/108);
+	   cycler_modifier=1 → Super (keycodes 133/134). The cycler is
+	   opened by window_cycler_next/prev and held visible while the
+	   modifier stays down. */
+	uint32_t cycler_kc_l = (config.cycler_modifier == 1) ? 133 : 64;
+	uint32_t cycler_kc_r = (config.cycler_modifier == 1) ? 134 : 108;
+	uint32_t cycler_mod_bit = (config.cycler_modifier == 1)
+								  ? WLR_MODIFIER_LOGO
+								  : WLR_MODIFIER_ALT;
 	if (window_cycler.active && !locked && group == kb_group &&
 		event->state == WL_KEYBOARD_KEY_STATE_RELEASED &&
-		(keycode == 64 || keycode == 108)) {
+		(keycode == cycler_kc_l || keycode == cycler_kc_r)) {
 		window_cycler_commit();
+	}
+
+	/* While the cycler is open: digit 1..9 jumps directly to that
+	   thumbnail (only when the cycler modifier is currently held; we
+	   don't want a stray '4' inside another app to commit when the
+	   modifier was already released). Captured before the normal
+	   keybinding pass so the user's own digit binds (e.g. view tag N)
+	   don't fire alongside. */
+	if (window_cycler.active && !locked && group == kb_group &&
+		event->state == WL_KEYBOARD_KEY_STATE_PRESSED &&
+		(mods & cycler_mod_bit)) {
+		int32_t digit = -1;
+		for (i = 0; i < nsyms; i++) {
+			xkb_keysym_t s = syms[i];
+			if (s >= XKB_KEY_1 && s <= XKB_KEY_9)
+				digit = s - XKB_KEY_1;
+			else if (s >= XKB_KEY_KP_1 && s <= XKB_KEY_KP_9)
+				digit = s - XKB_KEY_KP_1;
+			if (digit >= 0)
+				break;
+		}
+		if (digit >= 0 && digit < window_cycler.count) {
+			window_cycler.index = digit;
+			window_cycler_commit();
+			group->nsyms = 0;
+			wl_event_source_timer_update(group->key_repeat_source, 0);
+			return;
+		}
+	}
+
+	/* Escape dismisses the cycler in place: no focus change, prior
+	   minimized / hidden-tag clients revert. */
+	if (window_cycler.active && !locked && group == kb_group &&
+		event->state == WL_KEYBOARD_KEY_STATE_PRESSED) {
+		bool esc_hit = false;
+		for (i = 0; i < nsyms; i++) {
+			if (syms[i] == XKB_KEY_Escape) {
+				esc_hit = true;
+				break;
+			}
+		}
+		if (esc_hit) {
+			window_cycler_destroy();
+			group->nsyms = 0;
+			wl_event_source_timer_update(group->key_repeat_source, 0);
+			return;
+		}
 	}
 
 	/* While the cycler is open, Alt+Q closes the highlighted window
@@ -4496,9 +4577,26 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	for (i = 0; i < nsyms; i++)
+	/* While the cycler is open, restrict the keybinding dispatch to
+	   keys that are part of the cycler interaction (Tab / Shift+Tab to
+	   step). Workspace switches, layout toggles and other user binds
+	   would interfere with the held-modifier flow, so we swallow them
+	   silently. Digit jumps and Escape were already handled and
+	   returned above. */
+	bool cycler_suppress = window_cycler.active && !locked;
+	for (i = 0; i < nsyms; i++) {
+		if (cycler_suppress) {
+			xkb_keysym_t s = syms[i];
+			bool is_tab =
+				s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab;
+			if (!is_tab) {
+				handled = 1;
+				continue;
+			}
+		}
 		handled =
 			keybinding(event->state, locked, mods, syms[i], keycode) || handled;
+	}
 
 	if (event->state == WL_KEYBOARD_KEY_STATE_RELEASED) {
 		tag_combo = false;
@@ -5004,8 +5102,9 @@ LEMON_HOT void motionnotify(uint32_t time, struct wlr_input_device *device, doub
 		}
 
 		/* Track pointer velocity (EMA) while dragging, for the momentum
-		   hand-off on release. Reset after an idle gap so a slow drag start
-		   does not inherit a stale fling. */
+		   hand-off on release. After a brief pause we now exponentially
+		   decay the velocity instead of hard-resetting it -- a natural
+		   beat between two flicks no longer wipes the fling intent. */
 		if (config.animation_momentum &&
 			(cursor_mode == CurMove || cursor_mode == CurResize)) {
 			uint32_t vnow = frame_now_ms();
@@ -5015,26 +5114,20 @@ LEMON_HOT void motionnotify(uint32_t time, struct wlr_input_device *device, doub
 				double ivy = (cursor->y - drag_last_y) / vdt;
 				drag_vel_x = drag_vel_x * 0.6 + ivx * 0.4;
 				drag_vel_y = drag_vel_y * 0.6 + ivy * 0.4;
-			} else {
-				drag_vel_x = drag_vel_y = 0.0;
+			} else if (vdt >= 0.1) {
+				/* Gap >= 100 ms: decay with ~200 ms half-life so a held
+				   pause forgets stale velocity within a few hundred
+				   millis without snapping it to zero on the next event. */
+				double decay = exp(-vdt / 0.2);
+				drag_vel_x *= decay;
+				drag_vel_y *= decay;
 			}
 			drag_last_x = cursor->x;
 			drag_last_y = cursor->y;
 			drag_last_ms = vnow;
 		}
 
-		/* Throttle idle-notify D-Bus signal to once per 250 ms.
-		   Continuous cursor motion was flooding the bus and adding latency
-		   on every event. Activity is still reported promptly enough for
-		   any idle-watcher (250 ms is well under typical inhibit windows). */
-		{
-			static uint32_t last_idle_notify_ms = 0;
-			uint32_t now_ms_motion = frame_now_ms();
-			if (now_ms_motion - last_idle_notify_ms >= 250) {
-				wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
-				last_idle_notify_ms = now_ms_motion;
-			}
-		}
+		idle_notify_throttled(false);
 
 		if (config.sloppyfocus) {
 			if (!selmon ||
@@ -5498,16 +5591,26 @@ static bool render_layer_surfaces(Monitor *m) {
 	return more;
 }
 
-/* drive fade-out animations for dying clients and layers; true if still animating */
-static bool render_fadeouts(void) {
+/* drive fade-out animations for dying clients and layers; true if still
+   animating. Scoped per monitor so a multi-output session does not
+   re-walk every fadeout from every monitor's frame callback. Fadeouts
+   without a bound monitor (rare: client died mid-handover) still run
+   from the first monitor to call us so they don't get orphaned. */
+static bool render_fadeouts(Monitor *m) {
 	Client *c = NULL, *tmp = NULL;
 	LayerSurface *l = NULL, *tmpl = NULL;
 	bool more = false;
 	wl_list_for_each_safe(c, tmp, &fadeout_clients, fadeout_link) {
+		Monitor *cm = c->mon ? c->mon : m;
+		if (cm != m)
+			continue;
 		if (client_draw_fadeout_frame(c))
 			more = true;
 	}
 	wl_list_for_each_safe(l, tmpl, &fadeout_layers, fadeout_link) {
+		Monitor *lm = l->mon ? l->mon : m;
+		if (lm != m)
+			continue;
 		if (layer_draw_fadeout_frame(l))
 			more = true;
 	}
@@ -5516,23 +5619,26 @@ static bool render_fadeouts(void) {
 
 /* draw clients owned by m. Sets *skip when a no-animation configure
    round-trip means the commit must be deferred this frame. Returns true
-   if any client wants another frame. */
+   if any client wants another frame. We finish iterating even after a
+   skip is observed so other animated clients still tick (otherwise a
+   single mid-resize client would freeze every animation behind it).
+   Walks the per-monitor index built by setmon() so multi-output
+   sessions don't pay O(N_clients * N_outputs) per frame. */
 static bool render_clients(Monitor *m, bool *skip) {
 	Client *c = NULL, *tmp = NULL;
 	bool more = false;
+	bool want_skip = false;
 	*skip = false;
-	wl_list_for_each_safe(c, tmp, &clients, link) {
-		if (LEMON_LIKELY(c->mon != m))
-			continue;
+	wl_list_for_each_safe(c, tmp, &m->clients, mon_link) {
 		if (client_draw_frame(c))
 			more = true;
-		if (!config.animations && !grabc && c->configure_serial) {
-			monitor_check_skip_frame_timeout(m);
-			*skip = true;
-			return more;
-		}
+		if (!config.animations && !grabc && c->configure_serial)
+			want_skip = true;
 	}
-	if (m->skiping_frame) {
+	if (want_skip) {
+		monitor_check_skip_frame_timeout(m);
+		*skip = true;
+	} else if (m->skiping_frame) {
 		monitor_stop_skip_frame_timer(m);
 	}
 	return more;
@@ -5609,7 +5715,7 @@ LEMON_HOT void do_rendermon(Monitor *m) {
 	bool frame_allow_tearing = check_tearing_frame_allow(m);
 
 	bool layers_more = render_layer_surfaces(m);
-	bool fadeouts_more = render_fadeouts();
+	bool fadeouts_more = render_fadeouts(m);
 	bool clients_more = render_clients(m, &skip);
 	bool dim_more = render_overview_dim(m);
 	need_more_frames = layers_more || fadeouts_more || clients_more || dim_more;
@@ -5633,8 +5739,15 @@ LEMON_HOT void do_rendermon(Monitor *m) {
 		clock_gettime(CLOCK_MONOTONIC, &t1);
 		int64_t us = (t1.tv_sec - t0.tv_sec) * 1000000 +
 					 (t1.tv_nsec - t0.tv_nsec) / 1000;
-		/* EMA (1/8 weight) feeds the late-latch deadline computation. */
-		m->render_ema_us = (uint32_t)((m->render_ema_us * 7 + us) / 8);
+		/* Asymmetric EMA: react fast (1/2 weight) when the frame got
+		   heavier so the late-latch deadline never overshoots into the
+		   next vblank, decay slowly (1/16) when frames get cheaper so a
+		   single light frame can't shrink the safety margin. Feeds the
+		   render_deadline computation in rendermon. */
+		if ((int64_t)us > (int64_t)m->render_ema_us)
+			m->render_ema_us = (uint32_t)((m->render_ema_us + us) / 2);
+		else
+			m->render_ema_us = (uint32_t)((m->render_ema_us * 15 + us) / 16);
 		if (LEMON_UNLIKELY(config.debug_frametime)) {
 			int64_t budget_us = m->wlr_output->refresh > 0
 									? 1000000000LL / m->wlr_output->refresh
@@ -6417,6 +6530,18 @@ void setmon(Client *c, Monitor *m, uint32_t newtags, bool focus) {
 		oldmon->prevsel = NULL;
 	}
 
+	/* Move c between per-monitor lists. mon_link_active is the explicit
+	   membership flag (wl_list nodes start uninitialized in ecalloc'd
+	   Clients; we set it once linked). */
+	if (c->mon_link_active) {
+		wl_list_remove(&c->mon_link);
+		c->mon_link_active = false;
+	}
+	if (m) {
+		wl_list_insert(&m->clients, &c->mon_link);
+		c->mon_link_active = true;
+	}
+
 	c->mon = m;
 
 	if (oldmon)
@@ -7193,6 +7318,21 @@ void setup_idle_timers(void) {
 										 config.idle_bindings[i].timeout_ms);
 	}
 	idle_timers_count = config.idle_bindings_count;
+}
+
+/* Rate-limited wrapper around wlr_idle_notifier_v1_notify_activity.
+   Every input path (motion, axis, keypress, swipe, set_selection) was
+   calling the notifier directly, flooding the idle-notify D-Bus signal
+   under high-poll mice or fast typists. Sharing a single 250 ms gate
+   bounds the bus chatter without measurably delaying idle-watchers.
+   force=true ignores the gate (used for cursor hide reset). */
+static void idle_notify_throttled(bool force) {
+	static uint32_t last_ms = 0;
+	uint32_t now = (uint32_t)get_now_in_ms();
+	if (!force && now - last_ms < 250)
+		return;
+	last_ms = now;
+	wlr_idle_notifier_v1_notify_activity(idle_notifier, seat);
 }
 
 void handlecursoractivity(void) {

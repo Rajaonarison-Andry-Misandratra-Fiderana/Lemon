@@ -1027,10 +1027,18 @@ LEMON_HOT void client_animation_next_tick(Client *c) {
 			height = (int32_t)lround(c->animation.vis[3]);
 		}
 		animation_passed = settled ? 1.0 : 0.0;
-		/* factor!=1.0 makes client_apply_clip scale the buffer to the animated
-		   box (smooth resize, correct overview thumbnails); on settle pass 1.0
-		   so the surface renders unscaled and pixel-crisp. */
-		factor = settled ? 1.0 : 0.5;
+		/* factor!=1.0 makes client_apply_clip scale the buffer to the
+		   animated box (smooth resize, correct overview thumbnails); on
+		   settle pass 1.0 so the surface renders unscaled and pixel-crisp.
+		   Pure translations (initial and target share the same size)
+		   keep factor 1.0 throughout: scaling the buffer down adds
+		   nothing visually for a move-only animation and costs sharpness
+		   on the client's own content. Resizes / overview thumbnails /
+		   tag slides still take the 0.5 scale. */
+		bool dims_changing =
+			(c->animation.initial.width != c->current.width) ||
+			(c->animation.initial.height != c->current.height);
+		factor = (settled || !dims_changing) ? 1.0 : 0.5;
 
 		/* Kinetic motion blur: fade proportional to speed while moving, restore
 		   the client's resting opacity on settle (perfectly crisp). Skipped for

@@ -6,6 +6,10 @@
    wrapped in a bright border. Selection commits on Alt release
    (driven from the keypress modifier path in lemon.c). */
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 static struct WindowCycler {
 	bool active;
 	int32_t index;
@@ -18,8 +22,113 @@ static struct WindowCycler {
 	struct wlr_scene_rect **hover_borders;
 	struct wlr_scene_rect **tiles;
 	struct wlr_scene_tree **thumbs;
+	struct wlr_scene_buffer **badges;
+	struct wlr_buffer **badge_buffers;
 	Monitor *mon;
 } window_cycler;
+
+typedef struct CyclerBadgeBuffer {
+	struct wlr_buffer base;
+	uint8_t *data;
+	size_t stride;
+} CyclerBadgeBuffer;
+
+/* Hand the renderer a pointer to the cached pixel data. */
+static bool cycler_badge_begin(struct wlr_buffer *base, uint32_t flags,
+							   void **data, uint32_t *format, size_t *stride) {
+	CyclerBadgeBuffer *b = wl_container_of(base, b, base);
+	if (flags & WLR_BUFFER_DATA_PTR_ACCESS_WRITE)
+		return false;
+	*data = b->data;
+	*format = DRM_FORMAT_ARGB8888;
+	*stride = b->stride;
+	return true;
+}
+
+static void cycler_badge_end(struct wlr_buffer *base) { (void)base; }
+
+static void cycler_badge_destroy(struct wlr_buffer *base) {
+	CyclerBadgeBuffer *b = wl_container_of(base, b, base);
+	free(b->data);
+	free(b);
+}
+
+static const struct wlr_buffer_impl cycler_badge_buffer_impl = {
+	.destroy = cycler_badge_destroy,
+	.begin_data_ptr_access = cycler_badge_begin,
+	.end_data_ptr_access = cycler_badge_end,
+};
+
+/* Render a single digit (or short string) onto a fresh ARGB8888
+   wlr_buffer. Background is a rounded dark pill; the text is drawn
+   centered in white. Returns NULL on allocation failure -- caller
+   tolerates missing badges. */
+static struct wlr_buffer *cycler_render_badge(const char *text, int32_t size) {
+	if (size < 16)
+		size = 16;
+	int32_t w = size;
+	int32_t h = size;
+	cairo_surface_t *surf =
+		cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+	if (cairo_surface_status(surf) != CAIRO_STATUS_SUCCESS) {
+		cairo_surface_destroy(surf);
+		return NULL;
+	}
+	cairo_t *cr = cairo_create(surf);
+	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_source_rgba(cr, 0, 0, 0, 0);
+	cairo_paint(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+
+	/* Rounded dark pill background. */
+	double r = h * 0.5;
+	double pad = 1.0;
+	cairo_set_source_rgba(cr, 0.05, 0.05, 0.07, 0.92);
+	cairo_new_sub_path(cr);
+	cairo_arc(cr, r + pad, r, r - pad, M_PI / 2, 3 * M_PI / 2);
+	cairo_arc(cr, w - r - pad, r, r - pad, 3 * M_PI / 2, M_PI / 2);
+	cairo_close_path(cr);
+	cairo_fill(cr);
+
+	PangoLayout *layout = pango_cairo_create_layout(cr);
+	char font_spec[64];
+	snprintf(font_spec, sizeof(font_spec), "Sans Bold %d",
+			 (int32_t)(size * 0.5));
+	PangoFontDescription *desc = pango_font_description_from_string(font_spec);
+	pango_layout_set_font_description(layout, desc);
+	pango_font_description_free(desc);
+	pango_layout_set_text(layout, text, -1);
+
+	int32_t tw, th;
+	pango_layout_get_pixel_size(layout, &tw, &th);
+	cairo_move_to(cr, (w - tw) / 2.0, (h - th) / 2.0);
+	cairo_set_source_rgba(cr, 1, 1, 1, 1);
+	pango_cairo_show_layout(cr, layout);
+
+	g_object_unref(layout);
+	cairo_destroy(cr);
+	cairo_surface_flush(surf);
+
+	int32_t stride = cairo_image_surface_get_stride(surf);
+	size_t total = (size_t)stride * (size_t)h;
+	uint8_t *pixels = malloc(total);
+	if (!pixels) {
+		cairo_surface_destroy(surf);
+		return NULL;
+	}
+	memcpy(pixels, cairo_image_surface_get_data(surf), total);
+	cairo_surface_destroy(surf);
+
+	CyclerBadgeBuffer *b = calloc(1, sizeof(*b));
+	if (!b) {
+		free(pixels);
+		return NULL;
+	}
+	wlr_buffer_init(&b->base, &cycler_badge_buffer_impl, w, h);
+	b->data = pixels;
+	b->stride = (size_t)stride;
+	return &b->base;
+}
 
 /* Last tiled client the cycler promoted to LyrTop so it draws above
    floating siblings. Reset back to LyrTile by focusclient as soon as
@@ -170,11 +279,19 @@ static void window_cycler_destroy(void) {
 		return;
 	if (window_cycler.root)
 		wlr_scene_node_destroy(&window_cycler.root->node);
+	if (window_cycler.badge_buffers) {
+		for (int32_t i = 0; i < window_cycler.count; i++) {
+			if (window_cycler.badge_buffers[i])
+				wlr_buffer_drop(window_cycler.badge_buffers[i]);
+		}
+	}
 	free(window_cycler.clients);
 	free(window_cycler.borders);
 	free(window_cycler.hover_borders);
 	free(window_cycler.tiles);
 	free(window_cycler.thumbs);
+	free(window_cycler.badges);
+	free(window_cycler.badge_buffers);
 	memset(&window_cycler, 0, sizeof(window_cycler));
 	window_cycler.hover = -1;
 }
@@ -209,7 +326,41 @@ static void window_cycler_commit(void) {
 	}
 }
 
-/* Predicate matching the clients eligible for the cycler list. */
+/* Attach a "1".."9" badge in the upper-left corner of cycler tile k.
+   Idempotent w.r.t. config.cycler_show_badges and k >= 9. Stores the
+   created scene_buffer + buffer so destroy() can drop them. */
+static void cycler_attach_badge(int32_t k, int32_t tx, int32_t ty,
+								int32_t thumb_w, int32_t thumb_h) {
+	(void)thumb_w;
+	if (!config.cycler_show_badges || k >= 9)
+		return;
+	int32_t badge_size = thumb_h / 6;
+	if (badge_size < 22)
+		badge_size = 22;
+	if (badge_size > 56)
+		badge_size = 56;
+	char label[4];
+	snprintf(label, sizeof(label), "%d", k + 1);
+	struct wlr_buffer *bb = cycler_render_badge(label, badge_size);
+	if (!bb)
+		return;
+	struct wlr_scene_buffer *bnode =
+		wlr_scene_buffer_create(window_cycler.root, bb);
+	if (!bnode) {
+		wlr_buffer_drop(bb);
+		return;
+	}
+	wlr_scene_buffer_set_dest_size(bnode, badge_size, badge_size);
+	int32_t inset = badge_size / 4;
+	wlr_scene_node_set_position(&bnode->node, tx + inset, ty + inset);
+	window_cycler.badges[k] = bnode;
+	window_cycler.badge_buffers[k] = bb;
+}
+
+/* Predicate matching the clients eligible for the cycler list.
+   Strict: current monitor, current tagset, not minimized, mapped. The
+   cycler is intentionally per-workspace; cross-tag jumps go through
+   overview / the tag-switch binds instead. */
 static inline bool window_cycler_eligible(Client *c, Monitor *m) {
 	return c && c->mon == m && !c->iskilling && !c->isunglobal &&
 		   !client_is_unmanaged(c) && !client_is_x11_popup(c) &&
@@ -241,6 +392,9 @@ static int32_t window_cycler_build(Monitor *m) {
 		ecalloc(n, sizeof(*window_cycler.hover_borders));
 	window_cycler.tiles = ecalloc(n, sizeof(*window_cycler.tiles));
 	window_cycler.thumbs = ecalloc(n, sizeof(*window_cycler.thumbs));
+	window_cycler.badges = ecalloc(n, sizeof(*window_cycler.badges));
+	window_cycler.badge_buffers =
+		ecalloc(n, sizeof(*window_cycler.badge_buffers));
 	window_cycler.count = n;
 	window_cycler.mon = m;
 	window_cycler.hover = -1;
@@ -398,9 +552,12 @@ static int32_t window_cycler_build(Monitor *m) {
 				? cl->mon->wlr_output->scale
 				: 1.0;
 
-		/* Pass 1: pick the largest "significant" buffer child (>= 16x16)
-		   as the anchor. That is the main surface; popups, decorations
-		   and tiny placeholders skip. */
+		/* Pass 1: pick the largest buffer child as the anchor. That is
+		   the main surface; popups, decorations and tiny placeholders
+		   lose to it on area. Threshold is 1x1 -- some apps (Electron,
+		   Chromium with hw-overlay) commit very small main buffers
+		   while real content lives in subsurfaces, and a higher
+		   threshold ends up dropping every candidate. */
 		struct wlr_scene_node *anchor_child = NULL;
 		int32_t anchor_w = 0, anchor_h = 0;
 		int64_t anchor_area = 0;
@@ -413,7 +570,7 @@ static int32_t window_cycler_build(Monitor *m) {
 				wlr_scene_buffer_from_node(child);
 			int32_t bw = 0, bh = 0;
 			window_cycler_buffer_size(buf, output_scale, &bw, &bh);
-			if (bw < 16 || bh < 16)
+			if (bw <= 0 || bh <= 0)
 				continue;
 			int64_t area = (int64_t)bw * bh;
 			if (area > anchor_area) {
@@ -425,11 +582,43 @@ static int32_t window_cycler_build(Monitor *m) {
 		}
 
 		if (!anchor_child) {
-			/* No real buffer in the snapshot -- client just mapped or
-			   is showing a single-pixel placeholder. Keep the dark
-			   backdrop tile, drop the snapshot. */
+			/* Scene-tree snapshot produced no usable buffer (disabled
+			   subtree, just-mapped client, or scenefx fadeout in
+			   progress). Definitive fallback: wrap the client's main
+			   surface buffer directly. This skips the snapshot's
+			   anchor / overlap logic but always produces a thumbnail
+			   for any mapped client with a current buffer. */
 			wlr_scene_node_destroy(&snap->node);
 			window_cycler.thumbs[k] = NULL;
+			struct wlr_surface *surf = client_surface(cl);
+			struct wlr_buffer *direct =
+				(surf && surf->buffer) ? &surf->buffer->base : NULL;
+			if (!direct)
+				continue;
+			struct wlr_scene_buffer *fb =
+				wlr_scene_buffer_create(window_cycler.root, direct);
+			if (!fb)
+				continue;
+			int32_t bw = surf->current.width > 0
+							 ? surf->current.width
+							 : direct->width;
+			int32_t bh = surf->current.height > 0
+							 ? surf->current.height
+							 : direct->height;
+			if (bw <= 0)
+				bw = thumb_w;
+			if (bh <= 0)
+				bh = thumb_h;
+			double fsx = (double)thumb_w / bw;
+			double fsy = (double)thumb_h / bh;
+			double fs = fsx < fsy ? fsx : fsy;
+			int32_t dw = (int32_t)(bw * fs);
+			int32_t dh = (int32_t)(bh * fs);
+			wlr_scene_buffer_set_dest_size(fb, dw, dh);
+			wlr_scene_node_set_position(&fb->node,
+										tx + (thumb_w - dw) / 2,
+										ty + (thumb_h - dh) / 2);
+			cycler_attach_badge(k, tx, ty, thumb_w, thumb_h);
 			continue;
 		}
 
@@ -470,6 +659,8 @@ static int32_t window_cycler_build(Monitor *m) {
 		int32_t offx = tx + (thumb_w - draw_w) / 2;
 		int32_t offy = ty + (thumb_h - draw_h) / 2;
 		wlr_scene_node_set_position(&snap->node, offx, offy);
+
+		cycler_attach_badge(k, tx, ty, thumb_w, thumb_h);
 	}
 
 	wlr_scene_node_raise_to_top(&window_cycler.root->node);
