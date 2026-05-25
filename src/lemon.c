@@ -5394,6 +5394,14 @@ static int battery_poll_callback(void *data) {
 		apply_battery_timer_slack(on_battery);
 		apply_cpu_dma_latency(on_battery);
 		reset_idle_timers();
+		if (config.ac_notify) {
+			Arg a = {.v = on_battery
+							 ? "notify-send -t 3000 -i battery 'Charger "
+							   "Disconnected'"
+							 : "notify-send -t 3000 -i ac-adapter "
+							   "'Charger Connected'"};
+			spawn_shell(&a);
+		}
 	}
 	malloc_trim(0);
 	wl_event_source_timer_update(battery_poll_source, 10000);

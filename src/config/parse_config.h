@@ -439,6 +439,7 @@ typedef struct {
 	   (default 50 ms; 0 = leave the default ~50 us slack). */
 	int32_t battery_fps;
 	int32_t battery_timer_slack_ms;
+	int32_t ac_notify;
 
 	/* PM_QOS request via /dev/cpu_dma_latency: max DMA wakeup latency (us) the
 	   kernel may impose. Low values pin CPUs in shallow C-states so IRQ
@@ -1620,6 +1621,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->battery_fps = atoi(value);
 	} else if (strcmp(key, "battery_timer_slack_ms") == 0) {
 		config->battery_timer_slack_ms = atoi(value);
+	} else if (strcmp(key, "ac_notify") == 0) {
+		config->ac_notify = atoi(value);
 	} else if (strcmp(key, "cpu_dma_latency_us") == 0) {
 		config->cpu_dma_latency_us = atoi(value);
 	} else if (strcmp(key, "late_latch") == 0) {
@@ -3508,6 +3511,7 @@ void override_config(void) {
 	config.battery_fps = CLAMP_INT(config.battery_fps, 1, 240);
 	config.battery_timer_slack_ms =
 		CLAMP_INT(config.battery_timer_slack_ms, 0, 1000);
+	config.ac_notify = CLAMP_INT(config.ac_notify, 0, 1);
 	config.cpu_dma_latency_us =
 		CLAMP_INT(config.cpu_dma_latency_us, -1, 1000000);
 	config.late_latch = CLAMP_INT(config.late_latch, 0, 1);
@@ -3747,6 +3751,7 @@ void set_value_default() {
 	   visibly jittered rates while on battery. Power-conscious users can
 	   re-raise this knob explicitly. */
 	config.battery_timer_slack_ms = 0;
+	config.ac_notify = 0;
 	config.cpu_dma_latency_us = -1;
 	config.late_latch = 0;
 	config.latency_margin_us = 2000;
