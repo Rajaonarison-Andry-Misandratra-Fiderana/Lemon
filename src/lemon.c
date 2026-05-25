@@ -2395,8 +2395,10 @@ buttonpress(struct wl_listener *listener, void *data) {
 					break;
 				}
 			}
+			/* Click outside any tile: swallow it (the overlay must
+			   only ever close on ALT release or a left-click pick) so
+			   the click can't leak through to whatever sits behind. */
 			if (hit < 0) {
-				window_cycler_destroy();
 				cursor_mode = CurNormal;
 				return;
 			}
@@ -2407,13 +2409,21 @@ buttonpress(struct wl_listener *listener, void *data) {
 				return;
 			}
 			if (event->button == BTN_RIGHT) {
+				/* Right-click closes the hit window in place and
+				   rebuilds the strip from whatever is left. The
+				   overlay only goes away once the user releases ALT
+				   or left-picks a tile, so a missed selection doesn't
+				   force them to re-trigger Alt+Tab. */
 				Client *victim = window_cycler.clients[hit];
 				Monitor *m = window_cycler.mon;
 				window_cycler_destroy();
 				if (victim && !victim->iskilling)
 					pending_kill_client(victim);
-				if (m && window_cycler_build(m) <= 1)
-					window_cycler_destroy();
+				if (m) {
+					int32_t built = window_cycler_build(m);
+					if (built > 0)
+						window_cycler_hover_at(cursor->x, cursor->y);
+				}
 				cursor_mode = CurNormal;
 				return;
 			}
