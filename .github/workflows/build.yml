@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.cc }} on Arch Linux
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+        xwayland: [enabled, disabled]
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Sy --noconfirm --needed \
+            git meson ninja pkgconf \
+            wlroots scenefx wayland wayland-protocols \
+            libinput xkbcommon libxkbcommon \
+            pcre2 cairo pango pangocairo \
+            xorg-xwayland xcb-util-wm \
+            clang
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.cc }}
+        run: |
+          meson setup build \
+            --buildtype=release \
+            -Dxwayland=${{ matrix.xwayland }} \
+            -Dnative=false \
+            -Dlto=false
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Show binary info
+        run: |
+          file build/lemon
+          ls -la build/lemon
+          build/lemon -v || true

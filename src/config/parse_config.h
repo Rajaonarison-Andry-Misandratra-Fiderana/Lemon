@@ -3797,12 +3797,14 @@ void set_value_default() {
 	config.mlock_pages = 1;
 	config.clipboard_history = 1;
 	/* Smaller defaults than before (was 100 * 1 MiB worst case): a 50
-	   * 256 KiB used to be the per-entry cap but that was sized for
-	   text only; with image clipboard support enabled, raise the
-	   default to 8 MiB so typical screenshots (PNG ~1-3 MiB) round-trip.
-	   Worst-case RAM at 50 entries x 8 MiB = 400 MiB; bump the entry
-	   count down rather than the byte cap if that matters. */
-	config.clipboard_history_max_entries = 50;
+	   * mlockall(MCL_CURRENT|MCL_ONFAULT) pins clipboard buffers in
+	   RAM, so the defaults must account for the worst-case pinned
+	   footprint: max_entries * max_bytes. With 20 entries * 8 MiB the
+	   ring caps at 160 MiB pinned, fits a 4 GiB laptop without
+	   pressure. Image clipboard support needs the 8 MiB per-entry cap
+	   so a typical screenshot PNG (1-3 MiB) round-trips; if you want
+	   more history slots, drop max_bytes proportionally. */
+	config.clipboard_history_max_entries = 20;
 	config.clipboard_history_max_bytes = 8 * 1024 * 1024;
 	/* Stock palette — same look the cairo paint had hardcoded before
 	   it moved into config. matugen users overwrite these with their
