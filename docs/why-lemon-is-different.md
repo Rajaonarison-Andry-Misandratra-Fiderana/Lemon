@@ -87,6 +87,60 @@ Release builds use `-O3` plus opportunistic GCC IPA passes, section GC, and a
 fast-math island for the animation curve hot path; optional two-pass PGO and
 jemalloc. The goal is a small, low-latency binary — not a feature checklist.
 
+## 11. Per-monitor client index
+
+Multi-output sessions used to walk the global client list from every
+monitor's frame callback and filter by `c->mon == m`. Lemon now maintains
+`mon->clients`, a per-output `wl_list` rooted at `Client.mon_link` and
+maintained by `setmon()` plus the destroy path. Render cost per frame is
+now `O(per_monitor)` instead of `O(N_clients * N_outputs)`, which matters
+once a tag has thirty windows or three monitors are active.
+
+## 12. Adaptive late-latch deadline
+
+The render duration EMA that drives the deadline timer is asymmetric: it
+absorbs upward spikes with `1/2` weight (so a sudden heavy frame can't push
+the next render past vblank) and decays with `1/16` weight when frames get
+cheaper. The safety margin tightens slowly and reacts to real cost in two
+frames, not seven.
+
+## 13. Sub-stepped spring at low refresh
+
+`spring_box_step` internally sub-steps when the wall-clock delta exceeds
+8 ms. Battery throttle (30 Hz), VRR low-refresh and animation skips no
+longer bend the spring curve — the integrator stays close to the
+continuous solution.
+
+## 14. Alt-tab cycler that always has thumbnails
+
+The Alt+Tab cycler builds a real scene snapshot of every focusable visible
+client on the active monitor. When `wlr_scene_tree_snapshot` produces no
+usable buffer anchor (Electron with tiny main surface, just-mapped client,
+fadeout in progress), the cycler wraps `client_surface->buffer` directly
+through `wlr_scene_buffer_create` instead of dropping the entry — every
+mapped client gets a thumbnail. Numbered badges (1..9) overlay each tile
+so `Mod+digit` jumps directly. Escape dismisses without picking. Workspace
+binds are swallowed while the overlay is open so the held modifier
+sequence stays focused.
+
+The cycler's hold modifier is configurable — `cycler_modifier=alt|super`
+— for hardware whose Super key does not register.
+
+## 15. Clipboard history for text *and* images
+
+The compositor's built-in selection capture accepts `image/*` MIMEs
+alongside `text/*`, prefers PNG when offered, and stores up to N entries
+in RAM (default 50 × 8 MiB). The popup picker decodes the PNG of the
+currently selected entry into an inline thumbnail with cairo; non-PNG
+formats fall back to a size-tagged placeholder. The paste-back source
+advertises only the captured MIME, so binary bytes do not leak into a
+text input field.
+
+The paste write path is non-blocking: the synchronous fast path covers
+text, large payloads spill into a `ClipPasteFlight` event-loop drain so
+an 8 MiB image to a slow consumer no longer fills the pipe buffer and
+deadlocks the main loop.
+
 ## What Lemon deliberately is *not*
 
 - **Blur and drop shadow are off by default** — both are wired up via

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="lemonBody" cx="38%" cy="34%" r="68%">
+      <stop offset="0%"  stop-color="#fff39a"/>
+      <stop offset="55%" stop-color="#ffd84d"/>
+      <stop offset="100%" stop-color="#e6a900"/>
+    </radialGradient>
+    <radialGradient id="lemonHighlight" cx="32%" cy="28%" r="22%">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="leafGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#7ec850"/>
+      <stop offset="100%" stop-color="#3f8a2a"/>
+    </linearGradient>
+    <linearGradient id="lensGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#2a2a2a"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+    <linearGradient id="lensShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="40%" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="6"/>
+      <feOffset dx="0" dy="6" result="off"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- soft ground shadow -->
+  <ellipse cx="256" cy="450" rx="150" ry="14" fill="#000" opacity="0.18"/>
+
+  <!-- lemon body: rounded ellipse with subtle nipple tips left/right -->
+  <g filter="url(#softShadow)">
+    <path d="
+      M 110 256
+      C 110 168, 178 110, 256 110
+      C 334 110, 402 168, 402 256
+      C 402 344, 334 402, 256 402
+      C 178 402, 110 344, 110 256
+      Z
+      M 110 256
+      C  92 250,  88 246,  92 244
+      C  90 246,  96 264, 110 258
+      Z
+      M 402 256
+      C 420 250, 424 246, 420 244
+      C 422 246, 416 264, 402 258
+      Z"
+      fill="url(#lemonBody)"/>
+    <!-- inner highlight -->
+    <ellipse cx="206" cy="190" rx="78" ry="44" fill="url(#lemonHighlight)"/>
+    <!-- pore texture: tiny darker dots -->
+    <g fill="#c98f00" opacity="0.35">
+      <circle cx="172" cy="220" r="2"/>
+      <circle cx="200" cy="252" r="1.8"/>
+      <circle cx="160" cy="276" r="2"/>
+      <circle cx="232" cy="298" r="1.5"/>
+      <circle cx="296" cy="320" r="2"/>
+      <circle cx="328" cy="280" r="2.2"/>
+      <circle cx="356" cy="244" r="1.8"/>
+      <circle cx="284" cy="190" r="2"/>
+      <circle cx="318" cy="218" r="1.8"/>
+      <circle cx="190" cy="334" r="2"/>
+      <circle cx="252" cy="356" r="1.6"/>
+      <circle cx="354" cy="320" r="1.6"/>
+    </g>
+  </g>
+
+  <!-- leaf with stem -->
+  <g transform="translate(248 96) rotate(-22)">
+    <path d="M 0 0 C 26 -42, 86 -52, 110 -28 C 96 -8, 60 8, 24 12 C 12 12, 0 6, 0 0 Z"
+          fill="url(#leafGrad)"/>
+    <path d="M 6 4 C 32 -14, 72 -28, 102 -22" stroke="#2a5d18" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M -2 -2 L -6 12" stroke="#6b4a1a" stroke-width="5" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- sunglasses bridge -->
+  <g>
+    <!-- bridge bar -->
+    <path d="M 220 222 C 240 214, 272 214, 292 222" stroke="#000" stroke-width="10" fill="none" stroke-linecap="round"/>
+    <!-- left lens -->
+    <g>
+      <rect x="124" y="200" width="106" height="56" rx="22" ry="22" fill="url(#lensGrad)"/>
+      <rect x="130" y="206" width="94" height="20" rx="14" ry="10" fill="url(#lensShine)"/>
+      <!-- frame outline -->
+      <rect x="124" y="200" width="106" height="56" rx="22" ry="22" fill="none" stroke="#0d0d0d" stroke-width="4"/>
+    </g>
+    <!-- right lens -->
+    <g>
+      <rect x="282" y="200" width="106" height="56" rx="22" ry="22" fill="url(#lensGrad)"/>
+      <rect x="288" y="206" width="94" height="20" rx="14" ry="10" fill="url(#lensShine)"/>
+      <rect x="282" y="200" width="106" height="56" rx="22" ry="22" fill="none" stroke="#0d0d0d" stroke-width="4"/>
+    </g>
+    <!-- temple stubs disappearing behind the lemon body -->
+    <path d="M 124 230 C 110 232, 102 240, 100 252" stroke="#000" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <path d="M 388 230 C 402 232, 410 240, 412 252" stroke="#000" stroke-width="9" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <!-- tiny mouth: subtle smile under the shades -->
+  <path d="M 230 310 Q 256 332, 282 310" stroke="#a06000" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.55"/>
+</svg>
