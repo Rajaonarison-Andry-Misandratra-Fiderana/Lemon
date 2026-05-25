@@ -225,10 +225,50 @@ cancels. No external clipboard manager required.
 | `clipboard_history` | 0/1 | Master switch. |
 | `clipboard_history_max_entries` | 1..1000 | Ring size. |
 | `clipboard_history_max_bytes` | 1024..67108864 | Per-entry byte cap; bigger selections are dropped. |
+| `clipboard_bg` | hex `RRGGBBAA` | Popup background colour. |
+| `clipboard_selected` | hex `RRGGBBAA` | Highlighted-row tint. |
+| `clipboard_text` | hex `RRGGBBAA` | Inactive-row text colour. |
+| `clipboard_text_selected` | hex `RRGGBBAA` | Highlighted-row text colour. |
 
 Dispatches: `toggle_clipboard_history` (open/close), plus
 `clipboard_history_select_next` / `_select_prev` / `_pick` / `_cancel` for
 explicit binds if you don't want the popup's built-in key handling.
+
+### Matugen integration
+
+The four colour keys above are plain RGBA, so any palette generator that
+can write a template file works. For [matugen](https://github.com/InioX/matugen)
+specifically, add a template that renders into a sidecar file and
+`source` it from your main `lemon.conf` (or, on hot-reload, write the
+keys directly to the bottom of `lemon.conf`).
+
+Example matugen template (`~/.config/matugen/templates/lemon-clipboard`):
+
+```
+clipboard_bg={{colors.surface.default.hex_stripped}}eb
+clipboard_selected={{colors.primary_container.default.hex_stripped}}55
+clipboard_text={{colors.on_surface.default.hex_stripped}}ff
+clipboard_text_selected={{colors.on_primary_container.default.hex_stripped}}ff
+```
+
+Matugen config entry:
+
+```toml
+[templates.lemon-clipboard]
+input_path = "~/.config/matugen/templates/lemon-clipboard"
+output_path = "~/.config/lemon/lemon.conf.matugen"
+```
+
+Then add at the bottom of `~/.config/lemon/lemon.conf`:
+
+```
+source-optional=/home/YOU/.config/lemon/lemon.conf.matugen
+```
+
+(`source-optional` silently skips when the file does not exist yet, so
+lemon still starts on a fresh install before matugen has ever run.) The
+popup picks up the new palette the next time you trigger
+`toggle_clipboard_history` — cairo rows are re-rendered on every open.
 
 ## Environment & autostart
 

@@ -143,7 +143,10 @@ static struct wlr_buffer *clip_render_row(int w, int h, const char *text,
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
 	if (selected) {
-		cairo_set_source_rgba(cr, 0.79, 0.72, 0.56, 0.28);
+		cairo_set_source_rgba(cr, config.clipboard_selected[0],
+							  config.clipboard_selected[1],
+							  config.clipboard_selected[2],
+							  config.clipboard_selected[3]);
 		cairo_rectangle(cr, 0, 0, w, h);
 		cairo_fill(cr);
 	}
@@ -163,9 +166,15 @@ static struct wlr_buffer *clip_render_row(int w, int h, const char *text,
 
 	cairo_move_to(cr, CLIP_ROW_PAD_X, (h - th) / 2);
 	if (selected) {
-		cairo_set_source_rgba(cr, 1.0, 0.95, 0.85, 1.0);
+		cairo_set_source_rgba(cr, config.clipboard_text_selected[0],
+							  config.clipboard_text_selected[1],
+							  config.clipboard_text_selected[2],
+							  config.clipboard_text_selected[3]);
 	} else {
-		cairo_set_source_rgba(cr, 0.92, 0.88, 0.78, 1.0);
+		cairo_set_source_rgba(cr, config.clipboard_text[0],
+							  config.clipboard_text[1],
+							  config.clipboard_text[2],
+							  config.clipboard_text[3]);
 	}
 	pango_cairo_show_layout(cr, layout);
 
@@ -568,9 +577,9 @@ static void clip_popup_open(void) {
 	clipboard.popup_w = CLIP_POPUP_W;
 	clipboard.popup_h = 2 * CLIP_POPUP_PAD + rows * CLIP_ROW_H;
 
-	float bg_color[4] = {0.09f, 0.08f, 0.06f, 0.92f};
 	clipboard.popup_bg = wlr_scene_rect_create(
-		clipboard.popup_tree, clipboard.popup_w, clipboard.popup_h, bg_color);
+		clipboard.popup_tree, clipboard.popup_w, clipboard.popup_h,
+		config.clipboard_bg);
 	if (clipboard.popup_bg) {
 		wlr_scene_rect_set_corner_radius(clipboard.popup_bg,
 										 CLIP_POPUP_RADIUS,

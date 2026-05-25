@@ -413,6 +413,16 @@ typedef struct {
 	int32_t clipboard_history_max_entries;
 	int32_t clipboard_history_max_bytes;
 
+	/* Clipboard popup palette. Background fill, selected-row tint,
+	   non-selected text, and selected-row text. Drop these as hex RGBA
+	   (0xRRGGBBAA) from the config so matugen-rendered templates can
+	   wire material-you colors straight in without touching anything
+	   else. */
+	float clipboard_bg[4];
+	float clipboard_selected[4];
+	float clipboard_text[4];
+	float clipboard_text_selected[4];
+
 	/* Force the wl_output subpixel hint to horizontal RGB for LCD subpixel
 	   anti-aliasing. Only correct on standard RGB-stripe panels. */
 	int32_t subpixel_rgb;
@@ -1529,6 +1539,22 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->clipboard_history_max_entries = atoi(value);
 	} else if (strcmp(key, "clipboard_history_max_bytes") == 0) {
 		config->clipboard_history_max_bytes = atoi(value);
+	} else if (strcmp(key, "clipboard_bg") == 0) {
+		int64_t color = parse_color(value);
+		if (color >= 0)
+			convert_hex_to_rgba(config->clipboard_bg, color);
+	} else if (strcmp(key, "clipboard_selected") == 0) {
+		int64_t color = parse_color(value);
+		if (color >= 0)
+			convert_hex_to_rgba(config->clipboard_selected, color);
+	} else if (strcmp(key, "clipboard_text") == 0) {
+		int64_t color = parse_color(value);
+		if (color >= 0)
+			convert_hex_to_rgba(config->clipboard_text, color);
+	} else if (strcmp(key, "clipboard_text_selected") == 0) {
+		int64_t color = parse_color(value);
+		if (color >= 0)
+			convert_hex_to_rgba(config->clipboard_text_selected, color);
 	} else if (strcmp(key, "syncobj_enable") == 0) {
 		config->syncobj_enable = atoi(value);
 	} else if (strcmp(key, "client_hibernate_idle_secs") == 0) {
@@ -3729,6 +3755,25 @@ void set_value_default() {
 	   someone copies a wall of base64. */
 	config.clipboard_history_max_entries = 50;
 	config.clipboard_history_max_bytes = 256 * 1024;
+	/* Stock palette — same look the cairo paint had hardcoded before
+	   it moved into config. matugen users overwrite these with their
+	   material-you colors via a template. */
+	config.clipboard_bg[0] = 0.09f;
+	config.clipboard_bg[1] = 0.08f;
+	config.clipboard_bg[2] = 0.06f;
+	config.clipboard_bg[3] = 0.92f;
+	config.clipboard_selected[0] = 0.79f;
+	config.clipboard_selected[1] = 0.72f;
+	config.clipboard_selected[2] = 0.56f;
+	config.clipboard_selected[3] = 0.28f;
+	config.clipboard_text[0] = 0.92f;
+	config.clipboard_text[1] = 0.88f;
+	config.clipboard_text[2] = 0.78f;
+	config.clipboard_text[3] = 1.0f;
+	config.clipboard_text_selected[0] = 1.0f;
+	config.clipboard_text_selected[1] = 0.95f;
+	config.clipboard_text_selected[2] = 0.85f;
+	config.clipboard_text_selected[3] = 1.0f;
 	config.subpixel_rgb = 0;
 	config.debug_frametime = 0;
 	config.scroller_top_gap = -1;
