@@ -3735,7 +3735,12 @@ void set_value_default() {
 	config.idle_timeout = 300;
 	config.idle_timeout_battery = 0;
 	config.battery_fps = 60;
-	config.battery_timer_slack_ms = 50;
+	/* Default 0 (= keep the kernel ~50 us slack). The previous 50 ms
+	   default coalesced lemon's frame timers with everything else on the
+	   CPU, so wallpaper transitions (swww) and waybar redraws ticked at
+	   visibly jittered rates while on battery. Power-conscious users can
+	   re-raise this knob explicitly. */
+	config.battery_timer_slack_ms = 0;
 	config.cpu_dma_latency_us = -1;
 	config.late_latch = 0;
 	config.latency_margin_us = 2000;
