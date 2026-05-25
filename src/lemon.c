@@ -7900,17 +7900,85 @@ static int32_t handle_sigchld_fd(int32_t fd, uint32_t mask, void *data) {
 	return 0;
 }
 
-/* Event-loop callback: trigger a config reload when SIGUSR1 arrives. Lets
-   theme generators (matugen, pywal, etc.) re-skin the compositor without
-   the user mashing the reload keybind. Drops the signal if setup hasn't
-   completed yet. */
+/* Re-read the matugen sidecar (~/.config/lemon/lemon.conf.matugen) and
+   overlay only the clipboard palette keys onto the live config. Does
+   not re-arrange clients, re-spawn exec=, or touch any other reloadable
+   subsystem -- a wallpaper change must stay seamless. If the picker is
+   already on screen, repaint its cairo rows so the new colours show up
+   without waiting for the next open. */
+static void apply_matugen_palette(void) {
+	char path[PATH_MAX];
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	const char *home = getenv("HOME");
+	if (xdg && *xdg)
+		snprintf(path, sizeof(path), "%s/lemon/lemon.conf.matugen", xdg);
+	else if (home)
+		snprintf(path, sizeof(path), "%s/.config/lemon/lemon.conf.matugen",
+				 home);
+	else
+		return;
+
+	FILE *f = fopen(path, "r");
+	if (!f)
+		return;
+
+	char line[512];
+	while (fgets(line, sizeof(line), f)) {
+		char *p = line;
+		while (*p == ' ' || *p == '\t')
+			p++;
+		if (*p == '#' || *p == '\n' || *p == '\0' || *p == '\r')
+			continue;
+		char *eq = strchr(p, '=');
+		if (!eq)
+			continue;
+		*eq = '\0';
+		char *key = p;
+		char *value = eq + 1;
+		char *kend = eq - 1;
+		while (kend > key && (*kend == ' ' || *kend == '\t')) {
+			*kend = '\0';
+			kend--;
+		}
+		while (*value == ' ' || *value == '\t')
+			value++;
+		char *vend = value + strlen(value);
+		while (vend > value &&
+			   (vend[-1] == '\n' || vend[-1] == '\r' || vend[-1] == ' ' ||
+				vend[-1] == '\t'))
+			*--vend = '\0';
+
+		int64_t color = parse_color(value);
+		if (color < 0)
+			continue;
+		if (strcmp(key, "clipboard_bg") == 0)
+			convert_hex_to_rgba(config.clipboard_bg, color);
+		else if (strcmp(key, "clipboard_selected") == 0)
+			convert_hex_to_rgba(config.clipboard_selected, color);
+		else if (strcmp(key, "clipboard_text") == 0)
+			convert_hex_to_rgba(config.clipboard_text, color);
+		else if (strcmp(key, "clipboard_text_selected") == 0)
+			convert_hex_to_rgba(config.clipboard_text_selected, color);
+	}
+	fclose(f);
+
+	if (clipboard.popup_open && clipboard.popup_bg)
+		wlr_scene_rect_set_color(clipboard.popup_bg, config.clipboard_bg);
+	if (clipboard.popup_open)
+		clip_popup_refresh_rows();
+}
+
+/* Event-loop callback: re-apply the matugen palette when SIGUSR1
+   arrives. Narrow on purpose -- full reloads stay on the keybind
+   (ALT+r) so wallpaper changes don't re-spawn exec= or re-arrange
+   clients. Drops the signal if setup hasn't completed yet. */
 static int32_t handle_sigusr1_fd(int32_t fd, uint32_t mask, void *data) {
 	struct signalfd_siginfo si;
 	while (read(fd, &si, sizeof(si)) == (ssize_t)sizeof(si))
 		;
 	if (!reload_ready)
 		return 0;
-	reload_config(NULL);
+	apply_matugen_palette();
 	return 0;
 }
 
