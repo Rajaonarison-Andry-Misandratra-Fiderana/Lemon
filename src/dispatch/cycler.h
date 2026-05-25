@@ -9,11 +9,13 @@
 static struct WindowCycler {
 	bool active;
 	int32_t index;
+	int32_t hover;
 	int32_t count;
 	Client **clients;
 	struct wlr_scene_tree *root;
 	struct wlr_scene_rect *bg;
 	struct wlr_scene_rect **borders;
+	struct wlr_scene_rect **hover_borders;
 	struct wlr_scene_rect **tiles;
 	struct wlr_scene_tree **thumbs;
 	Monitor *mon;
@@ -119,7 +121,9 @@ static void window_cycler_scale_node(struct wlr_scene_node *node, double sx,
 }
 
 /* Highlight the entry at window_cycler.index by enabling its border
-   node and disabling the others. */
+   node and disabling the others. The hover border tracks the entry
+   under the cursor (window_cycler.hover) and is suppressed on the
+   selected tile to avoid double outlines. */
 static void window_cycler_refresh_highlight(void) {
 	int32_t i;
 	for (i = 0; i < window_cycler.count; i++) {
@@ -127,6 +131,36 @@ static void window_cycler_refresh_highlight(void) {
 			wlr_scene_node_set_enabled(&window_cycler.borders[i]->node,
 									   i == window_cycler.index);
 		}
+		if (window_cycler.hover_borders[i]) {
+			wlr_scene_node_set_enabled(
+				&window_cycler.hover_borders[i]->node,
+				i == window_cycler.hover && i != window_cycler.index);
+		}
+	}
+}
+
+/* Hit-test the cycler tiles against (x, y) and update the hover index.
+   Cheap O(n) sweep; refresh only when the index actually changes. */
+static void window_cycler_hover_at(double x, double y) {
+	if (!window_cycler.active || !window_cycler.tiles)
+		return;
+	int32_t hit = -1;
+	for (int32_t k = 0; k < window_cycler.count; k++) {
+		struct wlr_scene_rect *tile = window_cycler.tiles[k];
+		if (!tile)
+			continue;
+		int32_t tx = tile->node.x;
+		int32_t ty = tile->node.y;
+		int32_t tw = tile->width;
+		int32_t th = tile->height;
+		if (x >= tx && x < tx + tw && y >= ty && y < ty + th) {
+			hit = k;
+			break;
+		}
+	}
+	if (hit != window_cycler.hover) {
+		window_cycler.hover = hit;
+		window_cycler_refresh_highlight();
 	}
 }
 
@@ -138,9 +172,11 @@ static void window_cycler_destroy(void) {
 		wlr_scene_node_destroy(&window_cycler.root->node);
 	free(window_cycler.clients);
 	free(window_cycler.borders);
+	free(window_cycler.hover_borders);
 	free(window_cycler.tiles);
 	free(window_cycler.thumbs);
 	memset(&window_cycler, 0, sizeof(window_cycler));
+	window_cycler.hover = -1;
 }
 
 /* Focus the client at window_cycler.index, then destroy the overlay.
@@ -201,10 +237,13 @@ static int32_t window_cycler_build(Monitor *m) {
 
 	window_cycler.clients = ecalloc(n, sizeof(*window_cycler.clients));
 	window_cycler.borders = ecalloc(n, sizeof(*window_cycler.borders));
+	window_cycler.hover_borders =
+		ecalloc(n, sizeof(*window_cycler.hover_borders));
 	window_cycler.tiles = ecalloc(n, sizeof(*window_cycler.tiles));
 	window_cycler.thumbs = ecalloc(n, sizeof(*window_cycler.thumbs));
 	window_cycler.count = n;
 	window_cycler.mon = m;
+	window_cycler.hover = -1;
 
 	int32_t i = 0;
 	int32_t current_idx = 0;
@@ -305,6 +344,26 @@ static int32_t window_cycler_build(Monitor *m) {
 										tx - border, ty - border);
 			wlr_scene_node_set_enabled(&window_cycler.borders[k]->node,
 									   k == current_idx);
+		}
+
+		/* Hover border (thinner outline, only enabled for whichever tile
+		   the cursor sits over and never on the already-selected one).
+		   Drawn between the selected border and the thumbnail so the
+		   selected border still wins visually. */
+		const int32_t hb = border > 2 ? border - 2 : 2;
+		float hover_color[4] = {
+			config.bordercolor[0] * 0.6f + config.focuscolor[0] * 0.4f,
+			config.bordercolor[1] * 0.6f + config.focuscolor[1] * 0.4f,
+			config.bordercolor[2] * 0.6f + config.focuscolor[2] * 0.4f,
+			0.85f};
+		window_cycler.hover_borders[k] = wlr_scene_rect_create(
+			window_cycler.root, thumb_w + 2 * hb, thumb_h + 2 * hb,
+			hover_color);
+		if (window_cycler.hover_borders[k]) {
+			wlr_scene_node_set_position(&window_cycler.hover_borders[k]->node,
+										tx - hb, ty - hb);
+			wlr_scene_node_set_enabled(&window_cycler.hover_borders[k]->node,
+									   false);
 		}
 
 		/* Dark backdrop tile under the snapshot so transparent regions of

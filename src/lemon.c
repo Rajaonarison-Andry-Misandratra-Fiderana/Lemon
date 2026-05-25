@@ -4971,6 +4971,16 @@ LEMON_HOT void motionnotify(uint32_t time, struct wlr_input_device *device, doub
 		wlr_cursor_move(cursor, device, dx, dy);
 		handlecursoractivity();
 
+		/* Cycler eats motion: update the hover index, then bail out
+		   before any sloppy-focus / pointer routing fires (the overlay
+		   sits on LyrFadeOut which xytonode skips, so otherwise the
+		   cursor would silently re-focus whatever is under the
+		   thumbnails). */
+		if (window_cycler.active) {
+			window_cycler_hover_at(cursor->x, cursor->y);
+			return;
+		}
+
 		/* Track pointer velocity (EMA) while dragging, for the momentum
 		   hand-off on release. Reset after an idle gap so a slow drag start
 		   does not inherit a stale fling. */
