@@ -7269,12 +7269,21 @@ void unmapnotify(struct wl_listener *listener, void *data) {
 	Client *nextfocus = NULL;
 	c->iskilling = 1;
 
-	/* If the window the cycler is referencing is about to disappear, tear
-	   the overlay down so we never dereference a freed Client. */
+	/* If the window the cycler is referencing is about to disappear,
+	   rebuild the overlay from the surviving clients instead of
+	   tearing it down -- the user wants Alt+Tab to stay open until
+	   they release ALT or left-pick a tile, including across
+	   right-click-to-kill and any other voluntary close. */
 	if (window_cycler.active) {
 		for (int32_t i = 0; i < window_cycler.count; i++) {
 			if (window_cycler.clients[i] == c) {
+				Monitor *cyc_mon = window_cycler.mon;
 				window_cycler_destroy();
+				if (cyc_mon) {
+					int32_t built = window_cycler_build(cyc_mon);
+					if (built > 0)
+						window_cycler_hover_at(cursor->x, cursor->y);
+				}
 				break;
 			}
 		}
