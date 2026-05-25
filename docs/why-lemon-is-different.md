@@ -1,152 +1,108 @@
 # Why Lemon is different
 
-Lemon is a Wayland tiling compositor in C, forked from mangowm (a dwl/wlroots
-derivative). It is built on **wlroots 0.19** and **scenefx 0.4**. The fork
-trades breadth for two obsessions: **lowest possible latency** and **lowest
-possible resource use**, without giving up a premium animated feel. The things
-below are deliberate and mostly unusual among wlroots compositors.
+Wayland tiling compositor in C, forked from mangowm (dwl/wlroots). Built on
+**wlroots 0.19** + **scenefx 0.4**. Trades breadth for lowest latency and
+lowest resource use, without giving up a premium animated feel.
 
 ## 1. Single translation unit
 
-`src/lemon.c` is the *only* `.c` compiled into the binary (plus `util.c` and
-generated protocol sources). Almost every other `src/**.h` contains **function
-definitions** included exactly once. The whole compositor is one translation
-unit → the compiler sees everything → aggressive whole-program inlining and
-devirtualization, and a fast build. Most compositors are dozens of separate
-objects; Lemon is one.
+`src/lemon.c` is the only `.c` compiled; almost every other `src/**.h` carries
+function definitions and is included exactly once. The whole compositor is one
+TU → whole-program inlining + fast builds.
 
-## 2. Spring-physics animations, not keyframes
+## 2. Spring-physics geometry
 
-Window geometry (move, resize, tiling, overview, workspace slide) is driven by a
-**damped harmonic oscillator** (Hooke's law + friction), integrated with
-semi-implicit Euler in `src/animation/spring.h`. It is:
+Move / resize / tile / overview / workspace slide use a damped harmonic
+oscillator (semi-implicit Euler, zero alloc). Interruptible, sub-pixel,
+self-terminating. Sub-stepped when `dt > 8 ms` so battery throttle and VRR
+low-refresh stay accurate. Open / close keep a bezier curve for the 0..1 fade.
 
-- **Interruptible** — change focus or layout mid-animation and the trajectory
-  bends from the *current velocity* instead of snapping or restarting.
-- **Sub-pixel** — float position + per-axis velocity, snapped to integer pixels
-  only when it settles (crisp text, no shimmer).
-- **Self-terminating** — once within a position *and* velocity epsilon it stops
-  scheduling frames, so an idle desktop is genuinely 0% CPU.
+## 3. Trackpad gestures as first-class input
 
-Open/close keep a bezier curve (they need a 0..1 progress for zoom/fade). A
-separate, faster spring is used for workspace switches.
+Gestures are not a `wlr_pointer_gestures_v1` passthrough — Lemon owns them:
 
-## 3. Idle compositor truly sleeps
+- **3-finger directional swipe** — picks the matching tiling layout and
+  promotes the focused window to master. Down minimises.
+- **4-finger horizontal swipe** — swaps the focused window with its
+  neighbour in any layout.
+- **4-finger vertical swipe** — drives the swayosd volume bar continuously
+  (`touchpad_4f_osd` + `touchpad_4f_step`).
 
-The per-monitor render loop only commits the scene when there is real damage (or
-a pending screen-capture). No damage → no GPU commit, no wakeup. Combined with
-the self-terminating springs and a 4 Hz cap on idle-notify, a static screen does
-almost no work. On battery, animation frame scheduling is throttled to ~60 fps.
+All resolved inside `swipe_update` so latency is one event-loop round-trip,
+not a daemon hop.
 
-## 4. Latency-first process & scheduling
+## 4. Idle compositor truly sleeps
 
-- The compositor requests **SCHED_RR realtime** scheduling and `mlockall()`s its
-  working set so it is never paged out or preempted by a busy client.
-- Children launch via **`posix_spawn`** (clone/vfork path), not `fork()`, so
-  spawning an app doesn't copy-on-write the compositor's whole page table.
-- xdg-desktop-portal is warm-pinged and the cursor theme preloaded at startup so
-  the first GTK/Qt client pays no cold-start.
-- Optional explicit GPU sync (`linux-drm-syncobj-v1`) lets the GPU signal
-  completion instead of the compositor blocking.
+Damage-gated commits. No damage → no GPU commit, no wakeup. Combined with
+self-terminating springs and a 4 Hz idle-notify cap, a static screen does
+~nothing. Battery mode caps animation scheduling at ~60 fps.
 
-## 5. Focus-aware system QoS
+## 5. Latency-first scheduling
 
-With `focus_qos`, on every focus change Lemon renices and re-ioprios the focused
-window's process group up and the one losing focus down — a runaway background
-app can't make the foreground stutter, with no external daemon (ananicy, etc.).
+`SCHED_RR` realtime, `mlockall(MCL_CURRENT|MCL_ONFAULT)`, `posix_spawn` for
+every child (no page-table COW). Cursor theme + xdg-desktop-portal pre-warmed
+at startup. Optional explicit GPU sync (`linux-drm-syncobj-v1`).
 
-## 6. Render tiers
+## 6. Adaptive late-latch deadline
 
-Each client is classed FOCUS / VISIBLE / OCCLUDED / HIDDEN. Occluded clients
-animate at 30 Hz, hidden ones not at all. The compositor spends frame budget only
-where it is visible.
+A deadline timer defers each frame until just before vblank. The render-time
+EMA driving it reacts fast to spikes (1/2 weight up) and decays slowly
+(1/16 down), so a heavy frame never overshoots the next vblank and a single
+light frame can't shrink the safety margin.
 
-## 7. Native idle without a daemon
+## 7. Per-monitor client index
 
-A built-in idle timer (`idle_timeout` + `idle_action`) blanks the screen
-(DPMS), suspends, or hibernates — and `idlebind` gives arbitrary timed actions —
-all inside the compositor, respecting idle inhibitors (video players), with no
-swayidle process.
+`mon->clients` (linked via `Client.mon_link`, maintained by `setmon`). Render
+cost per frame is `O(per_monitor)` instead of `O(N_clients × N_outputs)`.
 
-## 8. Surface geometry cache
+## 8. Render tiers
 
-An LRU `app_id → (w,h)` map persisted to disk lets the first configure for a
-known app be sent at the right size, skipping a resize round-trip on launch.
+FOCUS / VISIBLE / OCCLUDED / HIDDEN. Occluded clients animate at 30 Hz, hidden
+ones not at all.
 
-## 9. Memory discipline
+## 9. Focus-aware QoS
 
-Lemon aims to stay around ~100 MB resident. glibc malloc is tuned at startup
-(`M_ARENA_MAX=2`, low trim/mmap thresholds) and `malloc_trim` runs periodically
-to hand freed pages back to the kernel — a long session doesn't bloat. It also
-advertises **single-pixel-buffer-v1**, so solid-color surfaces (backgrounds,
-borders) cost one pixel of bandwidth instead of a full-screen buffer.
+`focus_qos` renices + re-ioprios the focused process group up and the one
+losing focus down on every focus change. No ananicy daemon.
 
-## 10. Tuned, tiny build
+## 10. Native idle action
 
-Release builds use `-O3` plus opportunistic GCC IPA passes, section GC, and a
-fast-math island for the animation curve hot path; optional two-pass PGO and
-jemalloc. The goal is a small, low-latency binary — not a feature checklist.
+`idle_timeout` + `idle_action` blanks (DPMS), suspends or hibernates, all
+inside the compositor and respecting idle inhibitors. `idlebind` adds
+arbitrary timed actions. No swayidle.
 
-## 11. Per-monitor client index
+## 11. Alt+Tab cycler with definitive thumbnail fallback
 
-Multi-output sessions used to walk the global client list from every
-monitor's frame callback and filter by `c->mon == m`. Lemon now maintains
-`mon->clients`, a per-output `wl_list` rooted at `Client.mon_link` and
-maintained by `setmon()` plus the destroy path. Render cost per frame is
-now `O(per_monitor)` instead of `O(N_clients * N_outputs)`, which matters
-once a tag has thirty windows or three monitors are active.
+Live scene-snapshot per client. When `wlr_scene_tree_snapshot` has no usable
+buffer anchor (Electron with a tiny main surface, just-mapped client, fadeout
+in progress) the cycler wraps `client_surface->buffer` directly via
+`wlr_scene_buffer_create` so every mapped client gets a tile. Numbered badges
+(1..9) overlay each thumbnail; `Mod+digit` jumps directly. `cycler_modifier`
+chooses Alt or Super for hardware whose Super key is dead.
 
-## 12. Adaptive late-latch deadline
+## 12. Clipboard history for text and images
 
-The render duration EMA that drives the deadline timer is asymmetric: it
-absorbs upward spikes with `1/2` weight (so a sudden heavy frame can't push
-the next render past vblank) and decays with `1/16` weight when frames get
-cheaper. The safety margin tightens slowly and reacts to real cost in two
-frames, not seven.
+Capture accepts `image/*` and `text/*` MIMEs. Image entries (PNG / JPEG /
+WEBP / GIF / TIFF / BMP) live in RAM alongside text; the picker decodes the
+currently selected PNG into an inline thumbnail. Paste source advertises only
+the captured MIME so binary bytes never leak into a text field. Paste write
+is non-blocking with an event-loop `ClipPasteFlight` drain, so an 8 MiB image
+to a slow consumer no longer deadlocks the main loop.
 
-## 13. Sub-stepped spring at low refresh
+## 13. Memory discipline
 
-`spring_box_step` internally sub-steps when the wall-clock delta exceeds
-8 ms. Battery throttle (30 Hz), VRR low-refresh and animation skips no
-longer bend the spring curve — the integrator stays close to the
-continuous solution.
+`~100 MB` resident target. glibc malloc tuned (`M_ARENA_MAX=2`, low trim and
+mmap thresholds), periodic `malloc_trim`. `single-pixel-buffer-v1` advertised,
+so solid-colour surfaces cost one pixel. Surface geometry cache persists
+`app_id → (w, h)` so the first configure for a known app is the right size.
 
-## 14. Alt-tab cycler that always has thumbnails
+## 14. Tuned, tiny build
 
-The Alt+Tab cycler builds a real scene snapshot of every focusable visible
-client on the active monitor. When `wlr_scene_tree_snapshot` produces no
-usable buffer anchor (Electron with tiny main surface, just-mapped client,
-fadeout in progress), the cycler wraps `client_surface->buffer` directly
-through `wlr_scene_buffer_create` instead of dropping the entry — every
-mapped client gets a thumbnail. Numbered badges (1..9) overlay each tile
-so `Mod+digit` jumps directly. Escape dismisses without picking. Workspace
-binds are swallowed while the overlay is open so the held modifier
-sequence stays focused.
+`-O3` plus opportunistic GCC IPA passes, section GC, fast-math island for the
+spring/curve hot path. Optional two-pass PGO and jemalloc.
 
-The cycler's hold modifier is configurable — `cycler_modifier=alt|super`
-— for hardware whose Super key does not register.
+## What Lemon deliberately is not
 
-## 15. Clipboard history for text *and* images
-
-The compositor's built-in selection capture accepts `image/*` MIMEs
-alongside `text/*`, prefers PNG when offered, and stores up to N entries
-in RAM (default 50 × 8 MiB). The popup picker decodes the PNG of the
-currently selected entry into an inline thumbnail with cairo; non-PNG
-formats fall back to a size-tagged placeholder. The paste-back source
-advertises only the captured MIME, so binary bytes do not leak into a
-text input field.
-
-The paste write path is non-blocking: the synchronous fast path covers
-text, large payloads spill into a `ClipPasteFlight` event-loop drain so
-an 8 MiB image to a slow consumer no longer fills the pipe buffer and
-deadlocks the main loop.
-
-## What Lemon deliberately is *not*
-
-- **Blur and drop shadow are off by default** — both are wired up via
-  scenefx and can be enabled with `blur=1` / `shadows=1`, but the defaults
-  keep them off because each costs real GPU time per frame. Opacity,
-  corner radius and animations are always on.
-- **No huge config DSL or scripting runtime** — plain `key=value`, hot-reloaded.
-- **No test suite / CI in-tree** — validation is a clean compile + a manual
-  smoke test in a nested session.
+- Blur and drop shadow are off by default (`blur=1` / `shadows=1` to opt in).
+- No config DSL or scripting runtime — plain `key=value`, hot-reloaded.
+- No CI, no in-tree tests — validation is a clean build + manual smoke test.
