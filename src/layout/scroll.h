@@ -305,8 +305,12 @@ void scroller(Monitor *m) {
 	if (config.smartgaps && n_heads == 1) {
 		cur_gappih = cur_gappoh = cur_gappov = 0;
 	}
+	/* Edge padding for the scroller comes from cur_gappoh now so the
+	   horizontal scroller leaves the same margin around windows as the
+	   rest of the layouts; scroller_structs is kept solely for the
+	   scroll-detection check below. */
 	int32_t max_client_width =
-		m->w.width - 2 * config.scroller_structs - cur_gappih;
+		m->w.width - 2 * cur_gappoh - cur_gappih;
 
 	if (n_heads == 1 && !config.scroller_ignore_proportion_single &&
 		!heads[0]->client->isfullscreen &&
@@ -402,7 +406,7 @@ void scroller(Monitor *m) {
 		   (m->prevsel->scroller_proportion * max_client_width) +
 				   (heads[focus_index]->scroller_proportion *
 					max_client_width) >
-			   m->w.width - 2 * config.scroller_structs - cur_gappih)));
+			   m->w.width - 2 * cur_gappoh - cur_gappih)));
 
 	if (n_heads == 1 && config.scroller_ignore_proportion_single) {
 		need_scroller = true;
@@ -433,13 +437,13 @@ void scroller(Monitor *m) {
 			target_geom.x = m->w.x + (m->w.width - target_geom.width) / 2;
 		} else if (need_apply_overspread) {
 			if (over_overspread_to_left) {
-				target_geom.x = m->w.x + config.scroller_structs;
+				target_geom.x = m->w.x + cur_gappoh;
 			} else {
 				target_geom.x =
 					m->w.x + (m->w.width -
 							  heads[focus_index]->scroller_proportion *
 								  max_client_width -
-							  config.scroller_structs);
+							  cur_gappoh);
 			}
 		} else {
 			target_geom.x =
@@ -447,8 +451,8 @@ void scroller(Monitor *m) {
 					? m->w.x + (m->w.width -
 								heads[focus_index]->scroller_proportion *
 									max_client_width -
-								config.scroller_structs)
-					: m->w.x + config.scroller_structs;
+								cur_gappoh)
+					: m->w.x + cur_gappoh;
 		}
 		horizontal_check_scroller_root_inside_mon(heads[focus_index]->client,
 												  &target_geom);
@@ -520,8 +524,12 @@ void vertical_scroller(Monitor *m) {
 	if (config.smartgaps && n_heads == 1) {
 		cur_gappiv = cur_gappov = cur_gappoh = 0;
 	}
+	/* Edge padding for the scroller comes from cur_gappov now so the
+	   vertical scroller leaves the same margin between waybar and the
+	   topmost window as the rest of the layouts; scroller_structs is
+	   kept solely for the scroll-detection check below. */
 	int32_t max_client_height =
-		m->w.height - 2 * config.scroller_structs - cur_gappiv;
+		m->w.height - 2 * cur_gappov - cur_gappiv;
 
 	if (n_heads == 1 && !config.scroller_ignore_proportion_single &&
 		!heads[0]->client->isfullscreen &&
@@ -620,7 +628,7 @@ void vertical_scroller(Monitor *m) {
 		   (m->prevsel->scroller_proportion * max_client_height) +
 				   (heads[focus_index]->scroller_proportion *
 					max_client_height) >
-			   m->w.height - 2 * config.scroller_structs - cur_gappiv)));
+			   m->w.height - 2 * cur_gappov - cur_gappiv)));
 
 	if (n_heads == 1 && config.scroller_ignore_proportion_single) {
 		need_scroller = true;
@@ -652,13 +660,13 @@ void vertical_scroller(Monitor *m) {
 			target_geom.y = m->w.y + (m->w.height - target_geom.height) / 2;
 		} else if (need_apply_overspread) {
 			if (over_overspread_to_up) {
-				target_geom.y = m->w.y + config.scroller_structs;
+				target_geom.y = m->w.y + cur_gappov;
 			} else {
 				target_geom.y =
 					m->w.y + (m->w.height -
 							  heads[focus_index]->scroller_proportion *
 								  max_client_height -
-							  config.scroller_structs);
+							  cur_gappov);
 			}
 		} else {
 			target_geom.y =
@@ -666,8 +674,8 @@ void vertical_scroller(Monitor *m) {
 					? m->w.y + (m->w.height -
 								heads[focus_index]->scroller_proportion *
 									max_client_height -
-								config.scroller_structs)
-					: m->w.y + config.scroller_structs;
+								cur_gappov)
+					: m->w.y + cur_gappov;
 		}
 		vertical_check_scroller_root_inside_mon(heads[focus_index]->client,
 												&target_geom);
