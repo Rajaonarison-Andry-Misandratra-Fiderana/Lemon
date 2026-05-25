@@ -5395,11 +5395,17 @@ static int battery_poll_callback(void *data) {
 		apply_cpu_dma_latency(on_battery);
 		reset_idle_timers();
 		if (config.ac_notify) {
+			/* -e/--transient + the swaync x-canonical-private-synchronous
+			   hint asks every common notification daemon (swaync,
+			   mako, dunst) to skip the persistent history -- AC plug
+			   events are pure ephemerals, no point archiving them. */
 			Arg a = {.v = on_battery
-							 ? "notify-send -t 3000 -i battery 'Charger "
-							   "Disconnected'"
-							 : "notify-send -t 3000 -i ac-adapter "
-							   "'Charger Connected'"};
+							 ? "notify-send -e -t 3000 -i battery "
+							   "-h string:x-canonical-private-synchronous:"
+							   "lemon-ac 'Charger Disconnected'"
+							 : "notify-send -e -t 3000 -i ac-adapter "
+							   "-h string:x-canonical-private-synchronous:"
+							   "lemon-ac 'Charger Connected'"};
 			spawn_shell(&a);
 		}
 	}
