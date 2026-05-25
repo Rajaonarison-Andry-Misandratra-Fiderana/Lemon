@@ -4821,9 +4821,13 @@ mapnotify(struct wl_listener *listener, void *data) {
 	resize(c, c->geom, 0);
 	printstatus();
 
-	/* Under the vertical scroller, a freshly opened window gets maximize-to-screen
-	   toggled on it — done after the trailing resize so it isn't reverted. */
-	if (!c->isfloating && c->mon && !c->ismaximizescreen &&
+	/* Under the vertical scroller, a freshly opened window can be
+	   auto-maximize-to-screen. Off by default -- it stops the scroller
+	   from actually tiling new windows alongside the existing ones,
+	   which surprised users (every app launched fullscreen). Opt in
+	   via scroller_auto_maximize=1 in the config. */
+	if (config.scroller_auto_maximize && !c->isfloating && c->mon &&
+		!c->ismaximizescreen &&
 		c->mon->pertag->ltidxs[c->mon->pertag->curtag]->id == VERTICAL_SCROLLER)
 		setmaximizescreen(c, 1);
 }

@@ -222,6 +222,7 @@ typedef struct {
 	float scroller_default_proportion_single;
 	int32_t scroller_ignore_proportion_single;
 	int32_t scroller_focus_center;
+	int32_t scroller_auto_maximize;
 	int32_t scroller_prefer_center;
 	int32_t scroller_prefer_overspread;
 	int32_t edge_scroller_pointer_focus;
@@ -1479,6 +1480,8 @@ bool parse_option(Config *config, char *key, char *value) {
 		config->scroller_ignore_proportion_single = atoi(value);
 	} else if (strcmp(key, "scroller_focus_center") == 0) {
 		config->scroller_focus_center = atoi(value);
+	} else if (strcmp(key, "scroller_auto_maximize") == 0) {
+		config->scroller_auto_maximize = atoi(value);
 	} else if (strcmp(key, "scroller_prefer_center") == 0) {
 		config->scroller_prefer_center = atoi(value);
 	} else if (strcmp(key, "scroller_prefer_overspread") == 0) {
@@ -3460,6 +3463,8 @@ void override_config(void) {
 		CLAMP_INT(config.scroller_ignore_proportion_single, 0, 1);
 	config.scroller_focus_center =
 		CLAMP_INT(config.scroller_focus_center, 0, 1);
+	config.scroller_auto_maximize =
+		CLAMP_INT(config.scroller_auto_maximize, 0, 1);
 	config.scroller_prefer_center =
 		CLAMP_INT(config.scroller_prefer_center, 0, 1);
 	config.scroller_prefer_overspread =
@@ -3719,6 +3724,7 @@ void set_value_default() {
 	config.scroller_default_proportion_single = 1.0f;
 	config.scroller_ignore_proportion_single = 1;
 	config.scroller_focus_center = 0;
+	config.scroller_auto_maximize = 0;
 	config.scroller_prefer_center = 0;
 	config.scroller_prefer_overspread = 1;
 	config.edge_scroller_pointer_focus = 1;
