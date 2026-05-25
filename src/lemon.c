@@ -816,6 +816,14 @@ static void view(const Arg *arg, bool want_animation);
 
 static void handlesig(int32_t signo);
 static int32_t setup_sigchld_signalfd(void);
+static int32_t setup_sigusr1_signalfd(void);
+
+/* Set to true once setup() has finished wiring monitors, scene tree and
+   listeners. Until then SIGUSR1-triggered reload_config would deref a
+   half-initialised compositor (e.g. arrange() through selmon=NULL),
+   which crashes and ends up in an exec-once -> matugen -> SIGUSR1
+   reboot loop when a theme generator races startup. */
+static volatile bool reload_ready = false;
 static void
 handle_keyboard_shortcuts_inhibit_new_inhibitor(struct wl_listener *listener,
 												void *data);
@@ -5988,6 +5996,7 @@ run(char *startup_cmd) {
 	                        ">/dev/null 2>&1 || true"};
 	spawn_shell(&portal_warm);
 
+	reload_ready = true;
 	wl_display_run(dpy);
 }
 
@@ -6506,6 +6515,7 @@ void setup(void) {
 		sigemptyset(&chld.sa_mask);
 		sigaction(SIGCHLD, &chld, NULL);
 	}
+	(void)setup_sigusr1_signalfd();
 
 	if (!(backend = wlr_backend_autocreate(event_loop, &session)))
 		die("couldn't create backend");
@@ -7888,6 +7898,47 @@ static int32_t handle_sigchld_fd(int32_t fd, uint32_t mask, void *data) {
 	while (waitpid(-1, NULL, WNOHANG) > 0)
 		; /* reap all zombies */
 	return 0;
+}
+
+/* Event-loop callback: trigger a config reload when SIGUSR1 arrives. Lets
+   theme generators (matugen, pywal, etc.) re-skin the compositor without
+   the user mashing the reload keybind. Drops the signal if setup hasn't
+   completed yet. */
+static int32_t handle_sigusr1_fd(int32_t fd, uint32_t mask, void *data) {
+	struct signalfd_siginfo si;
+	while (read(fd, &si, sizeof(si)) == (ssize_t)sizeof(si))
+		;
+	if (!reload_ready)
+		return 0;
+	reload_config(NULL);
+	return 0;
+}
+
+/* Block SIGUSR1 and route it through a signalfd on the event loop so the
+   reload runs from the main thread (avoids async-signal restrictions on
+   parse_config_file / scene rebuild). */
+static int32_t setup_sigusr1_signalfd(void) {
+	sigset_t usr1;
+	sigemptyset(&usr1);
+	sigaddset(&usr1, SIGUSR1);
+	if (sigprocmask(SIG_BLOCK, &usr1, NULL) != 0) {
+		wlr_log_errno(WLR_ERROR, "signalfd: sigprocmask SIGUSR1 failed");
+		return -1;
+	}
+	int fd = signalfd(-1, &usr1, SFD_CLOEXEC | SFD_NONBLOCK);
+	if (fd < 0) {
+		wlr_log_errno(WLR_ERROR, "signalfd: SIGUSR1 creation failed");
+		sigprocmask(SIG_UNBLOCK, &usr1, NULL);
+		return -1;
+	}
+	if (!wl_event_loop_add_fd(event_loop, fd, WL_EVENT_READABLE,
+							  handle_sigusr1_fd, NULL)) {
+		wlr_log(WLR_ERROR, "signalfd: SIGUSR1 add_fd failed");
+		close(fd);
+		sigprocmask(SIG_UNBLOCK, &usr1, NULL);
+		return -1;
+	}
+	return fd;
 }
 
 /* Block SIGCHLD and route it through a signalfd on the event loop so children
