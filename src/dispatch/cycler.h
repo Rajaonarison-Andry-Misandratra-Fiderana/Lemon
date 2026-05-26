@@ -210,10 +210,15 @@ static inline bool window_cycler_eligible(Client *c, Monitor *m) {
 }
 
 /* Temporarily restore every minimized client on m so they show up
-   in the cycler grid. Each restored client gets ov_was_minimized=1
-   so window_cycler_destroy can re-minimize the ones the user did
-   not pick (or move to another tag). Their tag set is restored to
-   mini_restore_tag (the workspace they were minimized from). */
+   in the cycler grid. set_minimized() disabled the scene tree (via
+   arrange/set_arrange_hidden) so just clearing isminimized is not
+   enough -- the wrapper scene tree and inner surface must be
+   re-enabled explicitly or the cell renders blank. Also restores
+   c->tags to mini_restore_tag (the workspace the client was
+   minimized from) so it satisfies VISIBLEON later, and overrides
+   tags to the current tagset when there is no recorded restore tag.
+   ov_was_minimized=1 marks the client so window_cycler_destroy
+   re-minimizes it on exit unless it was picked / moved. */
 static void cycler_unminimize_for_show(Monitor *m) {
 	Client *c = NULL;
 	wl_list_for_each(c, &clients, link) {
@@ -224,6 +229,17 @@ static void cycler_unminimize_for_show(Monitor *m) {
 		c->tags = c->mini_restore_tag ? c->mini_restore_tag
 									  : m->tagset[m->seltags];
 		client_pending_minimized_state(c, 0);
+		/* Re-enable scene nodes (set_minimized -> arrange ->
+		   set_arrange_hidden had disabled them). Without this the
+		   cell renders empty and the user has to click twice: first
+		   click commits but focusclient leaves the scene disabled,
+		   second click triggers the normal show_hide_client path
+		   that re-enables it. */
+		if (c->scene)
+			wlr_scene_node_set_enabled(&c->scene->node, true);
+		if (c->scene_surface)
+			wlr_scene_node_set_enabled(&c->scene_surface->node, true);
+		c->is_clip_to_hide = false;
 	}
 }
 
