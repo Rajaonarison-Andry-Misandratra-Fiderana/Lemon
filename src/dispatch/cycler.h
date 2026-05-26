@@ -433,6 +433,42 @@ static void cycler_attach_badge(int32_t k) {
 	window_cycler.badge_buffers[k] = bb;
 }
 
+/* Look up a layout by its enum id and assign it to monitor m's
+   tag at pertag index `tagnum_1based`. No-op if the layout is not
+   in the global layouts[] table. */
+static void cycler_set_tag_layout(Monitor *m, uint32_t tagnum_1based,
+								  int32_t layout_id) {
+	if (!m)
+		return;
+	for (uint32_t k = 0; k < LENGTH(layouts); k++) {
+		if (layouts[k].id == layout_id) {
+			m->pertag->ltidxs[tagnum_1based] = &layouts[k];
+			break;
+		}
+	}
+}
+
+/* Count clients on monitor m whose tag set intersects `mask`. Used
+   to decide whether the destination workspace of a move-to-tag is
+   empty (-> switch it to vertical_scroller so the moved window
+   appears maximized) or not (-> let its current layout tile the
+   newcomer with the existing clients). The moved client itself is
+   excluded via `exclude`. */
+static int32_t cycler_count_clients_on_tag(Monitor *m, uint32_t mask,
+										   Client *exclude) {
+	int32_t n = 0;
+	Client *oc = NULL;
+	wl_list_for_each(oc, &clients, link) {
+		if (!oc || oc == exclude || oc->iskilling || oc->isunglobal)
+			continue;
+		if (oc->mon != m)
+			continue;
+		if (oc->tags & mask)
+			n++;
+	}
+	return n;
+}
+
 /* Tear down the cycler overlay and restore every client to its
    pre-cycler geometry/state. After this returns, window_cycler is
    zeroed. */
@@ -461,9 +497,21 @@ static void window_cycler_destroy(void) {
 	window_cycler.hover = -1;
 	window_cycler.drag_idx = -1;
 	/* If a tile reorder happened, request a fresh arrange so tile
-	   layouts pick up the new client order. */
-	if (selmon)
+	   layouts pick up the new client order. While we are at it,
+	   collapse the current workspace into vertical_scroller when it
+	   contains exactly one visible client (typical post-move state)
+	   so the survivor renders at maximized size instead of being
+	   stuck in the previous tile/grid layout. */
+	if (selmon) {
+		int32_t visible =
+			cycler_count_clients_on_tag(selmon,
+										selmon->tagset[selmon->seltags],
+										NULL);
+		if (visible == 1)
+			cycler_set_tag_layout(selmon, selmon->pertag->curtag,
+								  VERTICAL_SCROLLER);
 		arrange(selmon, false, false);
+	}
 }
 
 /* Focus the client at window_cycler.index, restore everyone, then
@@ -808,43 +856,27 @@ static void window_cycler_move_to_tag(int32_t idx, uint32_t tagmask) {
 	target->tags = tagmask & TAGMASK;
 	target->istagswitching = 1;
 
-	/* Count other live clients that will share the destination tag on
-	   the same monitor (skip the cycler entries -- they're still on
-	   the source tag for one more frame). If the moved window is the
-	   only inhabitant, float + center it so it does not stretch
-	   fullscreen. Otherwise leave the pre-cycler tiled/floating state
-	   alone and let arrange() retile alongside the existing
-	   residents when the destination tag is viewed. */
+	/* Destination-workspace layout policy. If the moved window is
+	   landing on an empty workspace, switch that workspace to
+	   vertical_scroller so the lone newcomer renders maximized
+	   (matches the post-cycler single-client behaviour). When the
+	   destination already has clients, keep its current layout --
+	   it will tile the newcomer alongside the existing residents
+	   automatically on next view(). */
 	if (target->mon) {
-		Client *other = NULL;
-		int32_t roommates = 0;
-		wl_list_for_each(other, &clients, link) {
-			if (other == target || !other || other->iskilling ||
-				other->isunglobal || client_is_unmanaged(other) ||
-				client_is_x11_popup(other) || other->isminimized)
-				continue;
-			if (other->mon != target->mon)
-				continue;
-			if (!(other->tags & target->tags))
-				continue;
-			roommates++;
-			break;
-		}
+		int32_t roommates = cycler_count_clients_on_tag(
+			target->mon, target->tags & TAGMASK, target);
 		if (roommates == 0) {
-			struct wlr_box centered = bk->float_geom;
-			if (centered.width <= 0 || centered.height <= 0)
-				centered = bk->geom;
-			if (centered.width <= 0 || centered.height <= 0) {
-				centered.width = (int32_t)(target->mon->w.width * 0.6);
-				centered.height = (int32_t)(target->mon->w.height * 0.6);
-			}
-			centered = setclient_coordinate_center(target, target->mon,
-												   centered, 0, 0);
-			target->isfloating = 1;
+			uint32_t dest_tagnum =
+				get_tags_first_tag_num(target->tags & TAGMASK);
+			cycler_set_tag_layout(target->mon, dest_tagnum,
+								  VERTICAL_SCROLLER);
+			/* Make sure the newcomer is tiled (not floating from a
+			   prior cycler-resize state); vertical_scroller arranges
+			   tiled clients only. */
+			target->isfloating = 0;
 			target->isfullscreen = 0;
 			target->ismaximizescreen = 0;
-			target->geom = centered;
-			target->float_geom = centered;
 		}
 	}
 
