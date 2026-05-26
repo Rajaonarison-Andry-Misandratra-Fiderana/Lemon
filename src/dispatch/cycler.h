@@ -435,13 +435,19 @@ static int32_t window_cycler_pick_at(double x, double y) {
 	return -1;
 }
 
-/* Update the hover index from cursor coords. */
+/* Update the hover index from cursor coords. The keyboard cursor
+   (window_cycler.index) is also synced to the hover position so a
+   subsequent Tab / arrow press steps relative to where the pointer
+   left off -- otherwise pressing Tab after using the mouse would
+   jump back to the stale keyboard position. */
 static void window_cycler_hover_at(double x, double y) {
 	if (!window_cycler.active || !window_cycler.cells)
 		return;
 	int32_t hit = window_cycler_pick_at(x, y);
 	if (hit != window_cycler.hover) {
 		window_cycler.hover = hit;
+		if (hit >= 0)
+			window_cycler.index = hit;
 		window_cycler_refresh_highlight();
 	}
 }
@@ -874,7 +880,10 @@ static int32_t window_cycler_build(Monitor *m) {
 
 /* Move the selection one cell in the grid: (dx, dy) is the discrete
    step in column / row units. Clamps to the grid edges so an arrow
-   key never wraps unexpectedly (Tab is the wrap path). */
+   key never wraps unexpectedly (Tab is the wrap path). Clears the
+   hover so the border switches back from following the cursor to
+   following the keyboard cursor -- otherwise pressing an arrow
+   after using the mouse would not visibly move the selection. */
 static int32_t window_cycler_step_grid(int32_t dx, int32_t dy) {
 	if (!window_cycler.active || window_cycler.count <= 0)
 		return 0;
@@ -893,9 +902,13 @@ static int32_t window_cycler_step_grid(int32_t dx, int32_t dy) {
 		/* Last row may be partial: snap to the last valid index. */
 		cand = window_cycler.count - 1;
 	}
-	if (cand == window_cycler.index)
+	if (cand == window_cycler.index) {
+		window_cycler.hover = -1;
+		window_cycler_refresh_highlight();
 		return 0;
+	}
 	window_cycler.index = cand;
+	window_cycler.hover = -1;
 	window_cycler_refresh_highlight();
 	return 1;
 }
@@ -1135,6 +1148,9 @@ static int32_t window_cycler_step(int32_t delta) {
 	if (idx < 0)
 		idx += window_cycler.count;
 	window_cycler.index = idx;
+	/* Clear hover so the border tracks the keyboard cursor again
+	   after the user had been using the mouse. */
+	window_cycler.hover = -1;
 	window_cycler_refresh_highlight();
 	return 1;
 }
