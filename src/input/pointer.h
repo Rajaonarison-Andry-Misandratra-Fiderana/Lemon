@@ -37,6 +37,12 @@ axisnotify(struct wl_listener *listener, void *data) {
 	else
 		adir = event->delta > 0 ? AxisRight : AxisLeft;
 
+	/* Cycler owns the screen: skip axis (scroll) bindings that
+	   would retile / switch tag while the alt-tab grid is up.
+	   Scroll still propagates to the focused client below. */
+	if (window_cycler.active)
+		goto forward_axis;
+
 	for (ji = 0; ji < config.axis_bindings_count; ji++) {
 		if (config.axis_bindings_count < 1)
 			break;
@@ -58,6 +64,7 @@ axisnotify(struct wl_listener *listener, void *data) {
 		}
 	}
 
+forward_axis:
 	target_scroll_factor = pointer_is_trackpad(event->pointer)
 							   ? config.trackpad_scroll_factor
 							   : config.axis_scroll_factor;
@@ -83,6 +90,14 @@ int32_t ongesture(struct wlr_pointer_swipe_end_event *event) {
 	int32_t ji;
 
 	if (event->cancelled) {
+		return handled;
+	}
+
+	/* The cycler owns the screen while open: swallow gesture
+	   bindings (swipe_layout_dir, viewtoleft_have_client, ...) so a
+	   trackpad swipe cannot retile / switch workspace under the
+	   active alt-tab grid. Matches the overview behaviour. */
+	if (window_cycler.active) {
 		return handled;
 	}
 
