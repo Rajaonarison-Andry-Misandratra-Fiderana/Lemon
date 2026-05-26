@@ -463,12 +463,9 @@ static void cycler_strips_set_from_outer(struct wlr_scene_rect *strips[4],
 
 /* Move the single shared outline frame onto whichever cell is
    "active" (cursor-hover wins; keyboard-selected index otherwise).
-   Only one cell ever shows a frame, so there is no confusion
-   between hover and arrow position. Sets the spring target only:
-   the per-frame tick (cycler_overlay_tick) integrates frame_pos
-   toward frame_target so the frame bends between cells instead of
-   teleporting. On the first build the position is snapped to the
-   target (no fly-in from an undefined origin). */
+   Snaps instantly to the target -- no spring interpolation -- so
+   focus changes feel immediate. The spring state is kept in sync
+   so cycler_overlay_tick is a no-op (frame_running stays false). */
 static void window_cycler_refresh_highlight(void) {
 	if (window_cycler.count <= 0)
 		return;
@@ -484,25 +481,17 @@ static void window_cycler_refresh_highlight(void) {
 	const int32_t border = 6;
 	struct wlr_box outer = cycler_outer_frame_box(active, border);
 	cycler_box_to_spring(outer, window_cycler.frame_target);
-	if (!window_cycler.frame_initialized) {
-		/* First placement: snap so the frame appears at the cell
-		   instead of flying in from (0, 0). */
-		memcpy(window_cycler.frame_pos, window_cycler.frame_target,
-			   sizeof(window_cycler.frame_pos));
-		memset(window_cycler.frame_vel, 0, sizeof(window_cycler.frame_vel));
-		window_cycler.frame_initialized = true;
-		cycler_strips_set_from_outer(window_cycler.active_frame,
-									 window_cycler.frame_pos[0],
-									 window_cycler.frame_pos[1],
-									 window_cycler.frame_pos[2],
-									 window_cycler.frame_pos[3], border);
-	}
-	window_cycler.frame_running = true;
-	window_cycler.frame_last_tick_ms = 0; /* re-seed dt on next tick */
+	memcpy(window_cycler.frame_pos, window_cycler.frame_target,
+		   sizeof(window_cycler.frame_pos));
+	memset(window_cycler.frame_vel, 0, sizeof(window_cycler.frame_vel));
+	window_cycler.frame_initialized = true;
+	window_cycler.frame_running = false;
+	cycler_strips_set_from_outer(window_cycler.active_frame,
+								 window_cycler.frame_pos[0],
+								 window_cycler.frame_pos[1],
+								 window_cycler.frame_pos[2],
+								 window_cycler.frame_pos[3], border);
 	window_cycler_set_frame_enabled(window_cycler.active_frame, true);
-	/* Wake the monitor so the spring tick runs. */
-	if (window_cycler.mon && window_cycler.mon->wlr_output)
-		wlr_output_schedule_frame(window_cycler.mon->wlr_output);
 }
 
 /* Advance the active-frame spring one frame. Returns true while the
