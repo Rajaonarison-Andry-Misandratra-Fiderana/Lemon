@@ -260,41 +260,33 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	/* While the cycler is open, let normal keybindings dispatch
-	   (so user binds like Alt+E spawn still fire) but cancel
-	   key-repeat for any non-navigation key. Without that, holding
-	   the modifier while a spawn bind is pressed would re-launch the
-	   target app on every repeat tick because keyrepeat() calls
-	   keybinding directly. Tab / Shift+Tab and the four arrows are
-	   the only keys allowed to repeat -- they drive the cycler
-	   selection itself.
-
-	   Any dispatched non-nav bind also flips the cycler into
-	   *sticky* mode so the modifier release no longer auto-commits.
-	   This gives the launched program time to map and join the grid
-	   via window_cycler_add_client (called from mapnotify); without
-	   sticky, the user would release the modifier before the new
-	   client maps and the cycler would close, leaving the window
-	   to spawn full-size outside the grid. */
-	bool cycler_cancel_repeat = false;
+	/* While the cycler is open, only Tab / Shift+Tab (step) and the
+	   four arrow keys (grid nav) reach keybinding(). Everything else
+	   is silently swallowed so user binds (resize, tile,
+	   togglefloating, workspace switch, launchers, ...) cannot fire
+	   under the cycler -- matches the overview behaviour. Digit
+	   jumps, Escape, Alt+Q kill and Alt+Shift+digit move-to-tag
+	   were already handled and returned above. Key-repeat is
+	   cancelled too: keyrepeat() bypasses this check and would
+	   otherwise re-trigger a swallowed bind on the next tick. */
+	bool cycler_ate = false;
 	for (i = 0; i < nsyms; i++) {
-		int32_t fired =
-			keybinding(event->state, locked, mods, syms[i], keycode);
-		handled = fired || handled;
 		if (window_cycler.active && !locked) {
 			xkb_keysym_t s = syms[i];
-			bool repeatable =
+			bool nav_key =
 				s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab ||
 				s == XKB_KEY_Left || s == XKB_KEY_Right ||
 				s == XKB_KEY_Up || s == XKB_KEY_Down;
-			if (!repeatable) {
-				cycler_cancel_repeat = true;
-				if (fired)
-					window_cycler.sticky = true;
+			if (!nav_key) {
+				handled = 1;
+				cycler_ate = true;
+				continue;
 			}
 		}
+		handled =
+			keybinding(event->state, locked, mods, syms[i], keycode) || handled;
 	}
-	if (cycler_cancel_repeat) {
+	if (cycler_ate) {
 		group->nsyms = 0;
 		wl_event_source_timer_update(group->key_repeat_source, 0);
 		return;
