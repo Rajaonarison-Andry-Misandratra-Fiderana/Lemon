@@ -1,5 +1,12 @@
 project('lemon', ['c', 'cpp'],
-  version : '0.14.0',
+  # Version is parsed from the `Version:` line near the top of CLAUDE.md so
+  # the docs file is the single source of truth. Bump CLAUDE.md and rerun
+  # `meson setup --reconfigure build` (or any subsequent configure) to
+  # propagate.
+  version : run_command(
+    'sed', '-n', 's/^Version: //p', 'CLAUDE.md',
+    check : true,
+  ).stdout().strip(),
 )
 
 subdir('protocols')
