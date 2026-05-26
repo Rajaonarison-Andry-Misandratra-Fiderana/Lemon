@@ -67,6 +67,22 @@ static struct WindowCycler {
 	   add_client. The user dismisses with Escape, a click on a cell,
 	   or a digit jump. */
 	bool sticky;
+
+	/* Spring-driven motion for the shared white outline frame.
+	   When the active cell changes (Tab, arrow, hover, click), the
+	   frame target box is retargeted; the per-frame tick (called
+	   from rendermon via render_cycler_overlay) advances frame_pos
+	   toward frame_target through the same damped harmonic
+	   oscillator the client geometry animations use, preserving
+	   velocity across retargets so the frame bends instead of
+	   teleporting between cells. Layout matches dwl_animation.vis:
+	   x, y, width, height of the outer (border-padded) box. */
+	double frame_pos[SPRING_AXES];
+	double frame_vel[SPRING_AXES];
+	double frame_target[SPRING_AXES];
+	bool frame_running;
+	bool frame_initialized;
+	uint32_t frame_last_tick_ms;
 } window_cycler;
 
 typedef struct CyclerBadgeBuffer {
@@ -401,10 +417,58 @@ static void window_cycler_restore_client(int32_t i) {
 	resize(c, bk->geom, 0);
 }
 
+/* Compute the integer outer-frame box (cell padded by the border
+   thickness on every side) for cell `k`. The spring tracks this
+   box continuously. */
+static struct wlr_box cycler_outer_frame_box(int32_t k, int32_t border) {
+	struct wlr_box b = window_cycler.cells[k];
+	return (struct wlr_box){
+		.x = b.x - border,
+		.y = b.y - border,
+		.width = b.width + 2 * border,
+		.height = b.height + 2 * border,
+	};
+}
+
+/* Snap a box value into the spring's vis[] array (x, y, w, h). */
+static void cycler_box_to_spring(struct wlr_box b, double dst[SPRING_AXES]) {
+	dst[0] = b.x;
+	dst[1] = b.y;
+	dst[2] = b.width;
+	dst[3] = b.height;
+}
+
+/* Reposition the 4 strips so the outer frame matches the supplied
+   double-precision box (x, y, w, h). Mirrors window_cycler_position_frame
+   but takes the *outer* box already padded for the border thickness. */
+static void cycler_strips_set_from_outer(struct wlr_scene_rect *strips[4],
+										 double x, double y, double w, double h,
+										 int32_t border) {
+	if (w < 0)
+		w = 0;
+	if (h < 0)
+		h = 0;
+	int32_t inner_x = (int32_t)x + border;
+	int32_t inner_y = (int32_t)y + border;
+	int32_t inner_w = (int32_t)w - 2 * border;
+	int32_t inner_h = (int32_t)h - 2 * border;
+	if (inner_w < 1)
+		inner_w = 1;
+	if (inner_h < 1)
+		inner_h = 1;
+	struct wlr_box inner = {.x = inner_x, .y = inner_y,
+							.width = inner_w, .height = inner_h};
+	window_cycler_position_frame(strips, inner, border);
+}
+
 /* Move the single shared outline frame onto whichever cell is
    "active" (cursor-hover wins; keyboard-selected index otherwise).
    Only one cell ever shows a frame, so there is no confusion
-   between hover and arrow position. */
+   between hover and arrow position. Sets the spring target only:
+   the per-frame tick (cycler_overlay_tick) integrates frame_pos
+   toward frame_target so the frame bends between cells instead of
+   teleporting. On the first build the position is snapped to the
+   target (no fly-in from an undefined origin). */
 static void window_cycler_refresh_highlight(void) {
 	if (window_cycler.count <= 0)
 		return;
@@ -414,12 +478,82 @@ static void window_cycler_refresh_highlight(void) {
 						 : window_cycler.index;
 	if (active < 0 || active >= window_cycler.count) {
 		window_cycler_set_frame_enabled(window_cycler.active_frame, false);
+		window_cycler.frame_running = false;
 		return;
 	}
 	const int32_t border = 6;
-	window_cycler_position_frame(window_cycler.active_frame,
-								 window_cycler.cells[active], border);
+	struct wlr_box outer = cycler_outer_frame_box(active, border);
+	cycler_box_to_spring(outer, window_cycler.frame_target);
+	if (!window_cycler.frame_initialized) {
+		/* First placement: snap so the frame appears at the cell
+		   instead of flying in from (0, 0). */
+		memcpy(window_cycler.frame_pos, window_cycler.frame_target,
+			   sizeof(window_cycler.frame_pos));
+		memset(window_cycler.frame_vel, 0, sizeof(window_cycler.frame_vel));
+		window_cycler.frame_initialized = true;
+		cycler_strips_set_from_outer(window_cycler.active_frame,
+									 window_cycler.frame_pos[0],
+									 window_cycler.frame_pos[1],
+									 window_cycler.frame_pos[2],
+									 window_cycler.frame_pos[3], border);
+	}
+	window_cycler.frame_running = true;
+	window_cycler.frame_last_tick_ms = 0; /* re-seed dt on next tick */
 	window_cycler_set_frame_enabled(window_cycler.active_frame, true);
+	/* Wake the monitor so the spring tick runs. */
+	if (window_cycler.mon && window_cycler.mon->wlr_output)
+		wlr_output_schedule_frame(window_cycler.mon->wlr_output);
+}
+
+/* Advance the active-frame spring one frame. Returns true while the
+   spring is still moving (caller schedules the next frame). Called
+   from rendermon -> render_cycler_overlay so the integration runs at
+   the same cadence as client geometry animations. Uses the existing
+   spring_box_step / spring_overview_* config knobs so the frame
+   curve matches the windows it tracks. */
+static bool cycler_overlay_tick(uint32_t now_ms) {
+	if (!window_cycler.active || !window_cycler.frame_running)
+		return false;
+	if (window_cycler.frame_last_tick_ms == 0)
+		window_cycler.frame_last_tick_ms = now_ms;
+	double dt = (now_ms - window_cycler.frame_last_tick_ms) / 1000.0;
+	window_cycler.frame_last_tick_ms = now_ms;
+	if (dt <= 0)
+		return true;
+	if (dt > SPRING_MAX_DT)
+		dt = SPRING_MAX_DT;
+	double m = config.animation_spring_mass > 0 ? config.animation_spring_mass
+												: 1.0;
+	double k = config.animation_spring_overview_tension > 0
+				   ? config.animation_spring_overview_tension
+				   : 220.0;
+	double c = config.animation_spring_overview_friction > 0
+				   ? config.animation_spring_overview_friction
+				   : 28.0;
+	bool settled =
+		spring_box_step(window_cycler.frame_pos, window_cycler.frame_vel,
+						window_cycler.frame_target, dt, m, k, c);
+	const int32_t border = 6;
+	cycler_strips_set_from_outer(window_cycler.active_frame,
+								 window_cycler.frame_pos[0],
+								 window_cycler.frame_pos[1],
+								 window_cycler.frame_pos[2],
+								 window_cycler.frame_pos[3], border);
+	if (settled) {
+		/* Snap to integer target on settle so the rect rendering
+		   stops emitting sub-pixel damage every frame. */
+		memcpy(window_cycler.frame_pos, window_cycler.frame_target,
+			   sizeof(window_cycler.frame_pos));
+		memset(window_cycler.frame_vel, 0, sizeof(window_cycler.frame_vel));
+		cycler_strips_set_from_outer(window_cycler.active_frame,
+									 window_cycler.frame_pos[0],
+									 window_cycler.frame_pos[1],
+									 window_cycler.frame_pos[2],
+									 window_cycler.frame_pos[3], border);
+		window_cycler.frame_running = false;
+		return false;
+	}
+	return true;
 }
 
 /* Hit-test grid cells against (x, y). Returns the cell index under
@@ -721,6 +855,25 @@ static void window_cycler_drag_motion(double x, double y) {
 	struct wlr_box live = {.x = nx, .y = ny,
 						   .width = b.width, .height = b.height};
 	resize(c, live, 0);
+	/* Pursuit drag must be 1:1 with the cursor: the regular spring
+	   would lag the window behind the pointer by tens of pixels
+	   during fast motion (overview tension is intentionally soft).
+	   Snap the spring state straight to the live box -- vis at the
+	   target, velocity zero, running=false -- so the next render
+	   frame draws the window exactly where the cursor is. The spring
+	   takes over again on drop when drag_end re-targets the original
+	   cell (or the swap destination). */
+	c->animation.current = live;
+	c->animation.vis[0] = live.x;
+	c->animation.vis[1] = live.y;
+	c->animation.vis[2] = live.width;
+	c->animation.vis[3] = live.height;
+	c->animation.vel[0] = 0;
+	c->animation.vel[1] = 0;
+	c->animation.vel[2] = 0;
+	c->animation.vel[3] = 0;
+	c->animation.running = false;
+	c->animainit_geom = live;
 }
 
 /* End drag. If released over a different cell, swap; otherwise snap

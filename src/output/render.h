@@ -162,7 +162,11 @@ LEMON_HOT void do_rendermon(Monitor *m) {
 	bool fadeouts_more = render_fadeouts(m);
 	bool clients_more = render_clients(m, &skip);
 	bool dim_more = render_overview_dim(m);
-	need_more_frames = layers_more || fadeouts_more || clients_more || dim_more;
+	bool cycler_more = false;
+	if (window_cycler.active && window_cycler.mon == m)
+		cycler_more = cycler_overlay_tick(frame_now_ms());
+	need_more_frames = layers_more || fadeouts_more || clients_more ||
+					   dim_more || cycler_more;
 
 	if (!skip) {
 		if (config.allow_tearing && frame_allow_tearing) {
