@@ -269,6 +269,12 @@ typedef struct {
 	   committed. 0 = Alt (keysyms Alt_L/Alt_R, WLR_MODIFIER_ALT),
 	   1 = Super (Super_L/Super_R, WLR_MODIFIER_LOGO). */
 	uint32_t cycler_modifier;
+	/* User-overridable alias used inside keybind / mousebind lines.
+	   `mod=<modifier>` in the config file sets this; subsequent
+	   `bind=MOD,...` rows expand MOD to the configured WLR modifier
+	   mask. Default WLR_MODIFIER_ALT so existing configs that wrote
+	   the literal modifier names keep working. */
+	uint32_t mod_alias;
 	/* Toggle number badges above each cycler thumbnail. When enabled,
 	   Mod+<digit> jumps directly to that window. */
 	uint32_t cycler_show_badges;
@@ -798,6 +804,13 @@ uint32_t parse_mod(const char *mod_str) {
 			if (!strcmp(token, "hyper") || !strcmp(token, "hyper_l") ||
 				!strcmp(token, "hyper_r")) {
 				mod |= WLR_MODIFIER_MOD3;
+				match_success = true;
+			}
+			if (!strcmp(token, "mod")) {
+				/* User-defined alias (set via `mod=<modifier>` in the
+				   config); defaults to Alt. */
+				mod |= config.mod_alias ? config.mod_alias
+										: WLR_MODIFIER_ALT;
 				match_success = true;
 			}
 			if (!strcmp(token, "none")) {
@@ -1864,6 +1877,14 @@ bool parse_option(Config *config, char *key, char *value) {
 			config->cycler_modifier = 0;
 		else
 			config->cycler_modifier = atoi(value);
+	} else if (strcmp(key, "mod") == 0) {
+		/* User-defined modifier alias. Accepts the same names as a
+		   keybind modifier field (alt, super, ctrl, shift, hyper,
+		   or "+" combos like "alt+ctrl"). Subsequent bind=MOD,...
+		   rows expand to this mask. */
+		uint32_t parsed = parse_mod(value);
+		if (parsed != UINT32_MAX)
+			config->mod_alias = parsed;
 	} else if (strcmp(key, "cycler_show_badges") == 0) {
 		config->cycler_show_badges = atoi(value);
 	} else if (strcmp(key, "overviewgappi") == 0) {
@@ -3741,6 +3762,7 @@ void set_value_default() {
 
 	config.ov_tab_mode = 0;
 	config.cycler_modifier = 0;
+	config.mod_alias = WLR_MODIFIER_ALT;
 	config.cycler_show_badges = 1;
 	config.hotarea_size = 10;
 	config.hotarea_corner = BOTTOM_LEFT;
