@@ -497,21 +497,20 @@ static int32_t cycler_count_clients_on_tag(Monitor *m, uint32_t mask,
 /* Tear down the cycler overlay and restore every client to its
    pre-cycler geometry/state. After this returns, window_cycler is
    zeroed. */
-static void window_cycler_destroy(void) {
+static void window_cycler_destroy_with_pick(Client *picked) {
 	if (!window_cycler.active)
 		return;
-	/* Identify the cycler-picked client (selmon->sel after a commit;
-	   NULL on Escape / drag-cancel). The picked client must NOT be
-	   re-minimized below even if it was minimized when the cycler
-	   opened. */
-	Client *picked = selmon ? selmon->sel : NULL;
 	for (int32_t i = 0; i < window_cycler.count; i++) {
 		window_cycler_restore_client(i);
 	}
 	/* Re-minimize every client that was only unminimized so it
 	   could appear in the grid, except the one the user picked or
 	   moved out via Alt+Shift+digit (move_to_tag clears the flag
-	   itself). */
+	   itself). The picked parameter is passed by the caller because
+	   selmon->sel at this point is still the *previously* focused
+	   client -- focusclient(picked, ...) only runs after destroy
+	   returns. Using selmon->sel here would re-minimize the
+	   just-picked client and require a second click to focus it. */
 	{
 		Client *r;
 		wl_list_for_each(r, &clients, link) {
@@ -558,6 +557,13 @@ static void window_cycler_destroy(void) {
 	}
 }
 
+/* Convenience wrapper for destroy paths that have no specific
+   picked client (Escape dismiss, Alt+Q kill, modifier-release with
+   no selection). */
+static void window_cycler_destroy(void) {
+	window_cycler_destroy_with_pick(NULL);
+}
+
 /* Focus the client at window_cycler.index, restore everyone, then
    destroy the overlay. The picked client is hoisted into LyrTop so
    it draws over any floating sibling; the next focusclient() call
@@ -568,9 +574,24 @@ static void window_cycler_commit(void) {
 	Client *target = NULL;
 	if (window_cycler.index >= 0 && window_cycler.index < window_cycler.count)
 		target = window_cycler.clients[window_cycler.index];
-	window_cycler_destroy();
+	/* Tell destroy about the pick so it does not re-minimize the
+	   selected client (focusclient hasn't run yet, so selmon->sel
+	   still points at the previous focus). Without this, picking a
+	   minimized window required two clicks: first to "select" and
+	   second to actually focus because the first immediately
+	   re-minimized it. */
+	window_cycler_destroy_with_pick(target);
 	if (target && client_surface(target)->mapped) {
 		cycler_drop_raised_tile();
+		/* Picked client could be on a different workspace (e.g. a
+		   minimized window whose mini_restore_tag is not the current
+		   tagset). View its tag so it actually shows up on screen --
+		   mirrors what toggleoverview does on exit. */
+		if (target->mon && target->tags &&
+			!(target->tags & target->mon->tagset[target->mon->seltags])) {
+			uint32_t tag = get_tags_first_tag(target->tags);
+			view(&(Arg){.ui = tag}, false);
+		}
 		focusclient(target, 1);
 		if (target->scene && !target->isoverlay) {
 			wlr_scene_node_reparent(&target->scene->node, layers[LyrTop]);
