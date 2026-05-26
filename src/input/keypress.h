@@ -260,33 +260,36 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	/* While the cycler is open, only Tab / Shift+Tab (step) and the
-	   four arrow keys (grid nav) reach keybinding(). Everything else
-	   is silently swallowed so user binds (resize, tile,
-	   togglefloating, workspace switch, launchers, ...) cannot fire
-	   under the cycler -- matches the overview behaviour. Digit
-	   jumps, Escape, Alt+Q kill and Alt+Shift+digit move-to-tag
-	   were already handled and returned above. Key-repeat is
-	   cancelled too: keyrepeat() bypasses this check and would
-	   otherwise re-trigger a swallowed bind on the next tick. */
-	bool cycler_ate = false;
+	/* Dispatch keybindings normally. While the cycler is active the
+	   gating happens *inside* keybinding(): only spawn-family binds
+	   and the cycler's own next/prev step funcs are allowed to
+	   fire; everything else (togglemaximizescreen, togglefloating,
+	   togglefullscreen, setlayout, view, tag, ...) is silently
+	   swallowed there so the cycler owns the screen like overview.
+
+	   Key-repeat is still cancelled for non-navigation keys: even
+	   spawn binds must not re-launch on every repeat tick while the
+	   modifier is held, and the per-bind gate in keybinding() does
+	   not prevent keyrepeat() from re-firing the same code path. */
+	bool cycler_cancel_repeat = false;
 	for (i = 0; i < nsyms; i++) {
+		int32_t fired =
+			keybinding(event->state, locked, mods, syms[i], keycode);
+		handled = fired || handled;
 		if (window_cycler.active && !locked) {
 			xkb_keysym_t s = syms[i];
-			bool nav_key =
+			bool repeatable =
 				s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab ||
 				s == XKB_KEY_Left || s == XKB_KEY_Right ||
 				s == XKB_KEY_Up || s == XKB_KEY_Down;
-			if (!nav_key) {
-				handled = 1;
-				cycler_ate = true;
-				continue;
+			if (!repeatable) {
+				cycler_cancel_repeat = true;
+				if (fired)
+					window_cycler.sticky = true;
 			}
 		}
-		handled =
-			keybinding(event->state, locked, mods, syms[i], keycode) || handled;
 	}
-	if (cycler_ate) {
+	if (cycler_cancel_repeat) {
 		group->nsyms = 0;
 		wl_event_source_timer_update(group->key_repeat_source, 0);
 		return;

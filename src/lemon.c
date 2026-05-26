@@ -2324,6 +2324,24 @@ keybinding(uint32_t state, bool locked, uint32_t mods, xkb_keysym_t sym,
 			else
 				handled = 0;
 
+			/* While the alt-tab cycler is open, only allow spawn-family
+			   binds (so launchers like Alt+E still fire and the new
+			   window joins the grid via window_cycler_add_client) and
+			   the cycler navigation binds themselves. Everything else
+			   (togglefloating, togglemaximizescreen, togglefullscreen,
+			   setlayout, view, tag, ...) is swallowed silently so the
+			   cycler owns the screen the way overview does. Matches
+			   what overview achieves via per-function isoverview
+			   early-returns, but centralised here so we do not have to
+			   patch each individual bind. */
+			if (window_cycler.active &&
+				k->func != spawn && k->func != spawn_shell &&
+				k->func != spawn_on_empty &&
+				k->func != window_cycler_next &&
+				k->func != window_cycler_prev) {
+				return handled;
+			}
+
 			isbreak = k->func(&k->arg);
 
 			if (isbreak)
