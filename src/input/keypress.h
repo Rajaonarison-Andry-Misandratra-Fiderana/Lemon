@@ -62,7 +62,14 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 	if (window_cycler.active && !locked && group == kb_group &&
 		event->state == WL_KEYBOARD_KEY_STATE_RELEASED &&
 		(keycode == cycler_kc_l || keycode == cycler_kc_r)) {
-		window_cycler_commit();
+		/* Sticky cycler: a non-cycler bind fired during this session
+		   (typically a launcher like Alt+E). Don't commit on modifier
+		   release -- the cycler stays open so the freshly-spawned
+		   window has time to map and join the grid (see add_client in
+		   mapnotify). User dismisses with Escape, a click on a cell,
+		   or Alt+digit jump. */
+		if (!window_cycler.sticky)
+			window_cycler_commit();
 	}
 
 	/* While the cycler is open: digit 1..9 jumps directly to that
@@ -254,25 +261,37 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 	}
 
 	/* While the cycler is open, let normal keybindings dispatch
-	   (so the user's Alt+E spawn binds, etc. still fire) but cancel
+	   (so user binds like Alt+E spawn still fire) but cancel
 	   key-repeat for any non-navigation key. Without that, holding
 	   the modifier while a spawn bind is pressed would re-launch the
 	   target app on every repeat tick because keyrepeat() calls
-	   keybinding directly. Tab / Shift+Tab and the four arrow keys
-	   are the only keys allowed to repeat -- they drive the cycler
-	   selection itself. */
+	   keybinding directly. Tab / Shift+Tab and the four arrows are
+	   the only keys allowed to repeat -- they drive the cycler
+	   selection itself.
+
+	   Any dispatched non-nav bind also flips the cycler into
+	   *sticky* mode so the modifier release no longer auto-commits.
+	   This gives the launched program time to map and join the grid
+	   via window_cycler_add_client (called from mapnotify); without
+	   sticky, the user would release the modifier before the new
+	   client maps and the cycler would close, leaving the window
+	   to spawn full-size outside the grid. */
 	bool cycler_cancel_repeat = false;
 	for (i = 0; i < nsyms; i++) {
-		handled =
-			keybinding(event->state, locked, mods, syms[i], keycode) || handled;
+		int32_t fired =
+			keybinding(event->state, locked, mods, syms[i], keycode);
+		handled = fired || handled;
 		if (window_cycler.active && !locked) {
 			xkb_keysym_t s = syms[i];
 			bool repeatable =
 				s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab ||
 				s == XKB_KEY_Left || s == XKB_KEY_Right ||
 				s == XKB_KEY_Up || s == XKB_KEY_Down;
-			if (!repeatable)
+			if (!repeatable) {
 				cycler_cancel_repeat = true;
+				if (fired)
+					window_cycler.sticky = true;
+			}
 		}
 	}
 	if (cycler_cancel_repeat) {

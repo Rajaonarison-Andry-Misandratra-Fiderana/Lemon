@@ -59,6 +59,14 @@ static struct WindowCycler {
 	   positions. */
 	int32_t grid_cols;
 	int32_t grid_rows;
+	/* Sticky mode: any non-cycler keybind that fires while the
+	   cycler is open (typically a launcher like Alt+E) flips this
+	   on. While sticky, releasing the cycler modifier no longer
+	   auto-commits -- the cycler stays open like an overview so the
+	   freshly spawned window has time to map and join the grid via
+	   add_client. The user dismisses with Escape, a click on a cell,
+	   or a digit jump. */
+	bool sticky;
 } window_cycler;
 
 typedef struct CyclerBadgeBuffer {
@@ -767,7 +775,11 @@ static int32_t window_cycler_active_target(void) {
    re-applied (so the surviving windows spring into the new bigger
    grid) and the badges are re-rendered with correct numbers (a
    compact alone would leave each badge displaying the old
-   number). Caller passes the bit mask, not a digit. */
+   number). If the destination tag has no other visible clients,
+   the moved window is floated + centered (so a lone window does
+   not stretch fullscreen); otherwise it lands tiled and is
+   retiled together with the existing residents on tag-switch.
+   Caller passes the bit mask, not a digit. */
 static void window_cycler_move_to_tag(int32_t idx, uint32_t tagmask) {
 	if (idx < 0 || idx >= window_cycler.count || !(tagmask & TAGMASK))
 		return;
@@ -795,6 +807,47 @@ static void window_cycler_move_to_tag(int32_t idx, uint32_t tagmask) {
 	}
 	target->tags = tagmask & TAGMASK;
 	target->istagswitching = 1;
+
+	/* Count other live clients that will share the destination tag on
+	   the same monitor (skip the cycler entries -- they're still on
+	   the source tag for one more frame). If the moved window is the
+	   only inhabitant, float + center it so it does not stretch
+	   fullscreen. Otherwise leave the pre-cycler tiled/floating state
+	   alone and let arrange() retile alongside the existing
+	   residents when the destination tag is viewed. */
+	if (target->mon) {
+		Client *other = NULL;
+		int32_t roommates = 0;
+		wl_list_for_each(other, &clients, link) {
+			if (other == target || !other || other->iskilling ||
+				other->isunglobal || client_is_unmanaged(other) ||
+				client_is_x11_popup(other) || other->isminimized)
+				continue;
+			if (other->mon != target->mon)
+				continue;
+			if (!(other->tags & target->tags))
+				continue;
+			roommates++;
+			break;
+		}
+		if (roommates == 0) {
+			struct wlr_box centered = bk->float_geom;
+			if (centered.width <= 0 || centered.height <= 0)
+				centered = bk->geom;
+			if (centered.width <= 0 || centered.height <= 0) {
+				centered.width = (int32_t)(target->mon->w.width * 0.6);
+				centered.height = (int32_t)(target->mon->w.height * 0.6);
+			}
+			centered = setclient_coordinate_center(target, target->mon,
+												   centered, 0, 0);
+			target->isfloating = 1;
+			target->isfullscreen = 0;
+			target->ismaximizescreen = 0;
+			target->geom = centered;
+			target->float_geom = centered;
+		}
+	}
+
 	/* Hide the moved client right now so the empty cell does not
 	   visibly remain on screen until the next arrange. arrange() at
 	   cycler exit (or when the destination workspace is viewed)
@@ -846,6 +899,88 @@ static void window_cycler_move_to_tag(int32_t idx, uint32_t tagmask) {
 		window_cycler_apply_cell(i);
 		cycler_attach_badge(i);
 	}
+	window_cycler_refresh_highlight();
+}
+
+/* Append a freshly-mapped client to the running cycler. Called from
+   mapnotify so that any window spawned while Alt+Tab is held (a
+   shortcut launching the file manager, a notification daemon
+   popping up, etc.) joins the grid in place rather than appearing
+   *under* the dim backdrop. Grid is recomputed for the new count,
+   every existing cell springs to its new geometry, and badges are
+   re-rendered so their numbers match the new positions. Selection
+   moves to the newcomer so releasing the cycler modifier focuses
+   the just-spawned app. */
+static void window_cycler_add_client(Client *c) {
+	if (!window_cycler.active || !c || !window_cycler.mon)
+		return;
+	if (!window_cycler_eligible(c, window_cycler.mon))
+		return;
+	for (int32_t k = 0; k < window_cycler.count; k++) {
+		if (window_cycler.clients[k] == c)
+			return;
+	}
+	int32_t n = window_cycler.count + 1;
+	Client **nc = realloc(window_cycler.clients, n * sizeof(*nc));
+	if (!nc)
+		return;
+	window_cycler.clients = nc;
+	CyclerBackup *nb = realloc(window_cycler.backup, n * sizeof(*nb));
+	if (!nb)
+		return;
+	window_cycler.backup = nb;
+	struct wlr_box *ncells = realloc(window_cycler.cells, n * sizeof(*ncells));
+	if (!ncells)
+		return;
+	window_cycler.cells = ncells;
+	struct wlr_scene_buffer **nbg =
+		realloc(window_cycler.badges, n * sizeof(*nbg));
+	if (!nbg)
+		return;
+	window_cycler.badges = nbg;
+	struct wlr_buffer **nbb =
+		realloc(window_cycler.badge_buffers, n * sizeof(*nbb));
+	if (!nbb)
+		return;
+	window_cycler.badge_buffers = nbb;
+
+	int32_t i = window_cycler.count;
+	window_cycler.clients[i] = c;
+	window_cycler.backup[i] = (CyclerBackup){
+		.geom = c->geom,
+		.float_geom = c->float_geom,
+		.bw = c->bw,
+		.isfloating = c->isfloating,
+		.isfullscreen = c->isfullscreen,
+		.ismaximizescreen = c->ismaximizescreen,
+		.iscustomsize = c->iscustomsize,
+	};
+	window_cycler.cells[i] = (struct wlr_box){0};
+	window_cycler.badges[i] = NULL;
+	window_cycler.badge_buffers[i] = NULL;
+	window_cycler.count = n;
+
+	/* Tear down all badges (their dimensions are tuned to the
+	   previous cell size and their labels still show the previous
+	   indices); they're rebuilt immediately below against the new
+	   grid. */
+	for (int32_t k = 0; k < window_cycler.count; k++) {
+		if (window_cycler.badges[k]) {
+			wlr_scene_node_destroy(&window_cycler.badges[k]->node);
+			window_cycler.badges[k] = NULL;
+		}
+		if (window_cycler.badge_buffers[k]) {
+			wlr_buffer_drop(window_cycler.badge_buffers[k]);
+			window_cycler.badge_buffers[k] = NULL;
+		}
+	}
+
+	window_cycler_compute_cells(window_cycler.mon);
+	for (int32_t k = 0; k < window_cycler.count; k++) {
+		window_cycler_apply_cell(k);
+		cycler_attach_badge(k);
+	}
+	window_cycler.index = window_cycler.count - 1;
 	window_cycler_refresh_highlight();
 }
 
