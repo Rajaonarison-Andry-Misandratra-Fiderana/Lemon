@@ -274,4 +274,13 @@ mapnotify(struct wl_listener *listener, void *data) {
 		!c->ismaximizescreen &&
 		c->mon->pertag->ltidxs[c->mon->pertag->curtag]->id == VERTICAL_SCROLLER)
 		setmaximizescreen(c, 1);
+
+	/* If Alt+Tab is open and a brand-new window just spawned (typical
+	   case: the user fired a launcher bind like Alt+E while still
+	   holding the cycler modifier), splice it into the running grid
+	   so they can release the modifier to focus the just-spawned
+	   app. Eligibility (right monitor, current tag, mapped &
+	   non-popup) is enforced inside the helper. */
+	if (window_cycler.active && c->mon == window_cycler.mon)
+		window_cycler_add_client(c);
 }
