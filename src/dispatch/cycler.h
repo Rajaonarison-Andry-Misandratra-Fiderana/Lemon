@@ -193,13 +193,38 @@ static void cycler_drop_raised_tile(void) {
 }
 
 /* Predicate matching the clients eligible for the cycler list.
-   Strict: current monitor, current tagset, not minimized, mapped. The
-   cycler is intentionally per-workspace; cross-tag jumps go through
-   overview / the tag-switch binds instead. */
+   Includes:
+     - mapped clients visible on the current tagset of m
+     - minimized clients on m (temporarily unminimized inside
+       window_cycler_build via ov_was_minimized so they show up in
+       the grid; re-minimized on exit unless picked / moved).
+   Excludes only unmanaged / popups / killing / unglobal entries. */
 static inline bool window_cycler_eligible(Client *c, Monitor *m) {
-	return c && c->mon == m && !c->iskilling && !c->isunglobal &&
-		   !client_is_unmanaged(c) && !client_is_x11_popup(c) &&
-		   !c->isminimized && VISIBLEON(c, m);
+	if (!c || c->mon != m || c->iskilling || c->isunglobal)
+		return false;
+	if (client_is_unmanaged(c) || client_is_x11_popup(c))
+		return false;
+	if (c->ov_was_minimized)
+		return true;
+	return !c->isminimized && VISIBLEON(c, m);
+}
+
+/* Temporarily restore every minimized client on m so they show up
+   in the cycler grid. Each restored client gets ov_was_minimized=1
+   so window_cycler_destroy can re-minimize the ones the user did
+   not pick (or move to another tag). Their tag set is restored to
+   mini_restore_tag (the workspace they were minimized from). */
+static void cycler_unminimize_for_show(Monitor *m) {
+	Client *c = NULL;
+	wl_list_for_each(c, &clients, link) {
+		if (!c || c->mon != m || !c->isminimized || c->iskilling ||
+			c->isunglobal)
+			continue;
+		c->ov_was_minimized = true;
+		c->tags = c->mini_restore_tag ? c->mini_restore_tag
+									  : m->tagset[m->seltags];
+		client_pending_minimized_state(c, 0);
+	}
 }
 
 /* Compute grid layout for n cells inside the monitor's usable area.
@@ -475,8 +500,27 @@ static int32_t cycler_count_clients_on_tag(Monitor *m, uint32_t mask,
 static void window_cycler_destroy(void) {
 	if (!window_cycler.active)
 		return;
+	/* Identify the cycler-picked client (selmon->sel after a commit;
+	   NULL on Escape / drag-cancel). The picked client must NOT be
+	   re-minimized below even if it was minimized when the cycler
+	   opened. */
+	Client *picked = selmon ? selmon->sel : NULL;
 	for (int32_t i = 0; i < window_cycler.count; i++) {
 		window_cycler_restore_client(i);
+	}
+	/* Re-minimize every client that was only unminimized so it
+	   could appear in the grid, except the one the user picked or
+	   moved out via Alt+Shift+digit (move_to_tag clears the flag
+	   itself). */
+	{
+		Client *r;
+		wl_list_for_each(r, &clients, link) {
+			if (!r || !r->ov_was_minimized)
+				continue;
+			r->ov_was_minimized = false;
+			if (r != picked)
+				set_minimized(r);
+		}
 	}
 	if (window_cycler.root)
 		wlr_scene_node_destroy(&window_cycler.root->node);
@@ -677,14 +721,29 @@ static int32_t window_cycler_build(Monitor *m) {
 	if (!m)
 		return 0;
 
+	/* Restore every minimized client on this monitor so they appear
+	   in the grid alongside the visible ones. Marked ov_was_minimized
+	   so the destroy path re-minimizes the unpicked / unmoved ones. */
+	cycler_unminimize_for_show(m);
+
 	Client *c = NULL;
 	int32_t n = 0;
 	wl_list_for_each(c, &clients, link) {
 		if (window_cycler_eligible(c, m))
 			n++;
 	}
-	if (n <= 1)
+	if (n <= 1) {
+		/* Nothing to cycle: re-minimize anything we just unhid so
+		   the screen returns to its pre-cycler state. */
+		Client *r;
+		wl_list_for_each(r, &clients, link) {
+			if (r && r->mon == m && r->ov_was_minimized) {
+				r->ov_was_minimized = false;
+				set_minimized(r);
+			}
+		}
 		return n;
+	}
 
 	window_cycler.clients = ecalloc(n, sizeof(*window_cycler.clients));
 	window_cycler.backup = ecalloc(n, sizeof(*window_cycler.backup));
@@ -855,6 +914,10 @@ static void window_cycler_move_to_tag(int32_t idx, uint32_t tagmask) {
 	}
 	target->tags = tagmask & TAGMASK;
 	target->istagswitching = 1;
+	/* Target is now an explicit user-placed window on the
+	   destination tag; clear the cycler-temp unminimized flag so
+	   destroy() does not push it back into the minimized state. */
+	target->ov_was_minimized = false;
 
 	/* Destination-workspace layout policy. If the moved window is
 	   landing on an empty workspace, switch that workspace to
