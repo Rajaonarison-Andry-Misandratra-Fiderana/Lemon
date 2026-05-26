@@ -66,30 +66,89 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 	}
 
 	/* While the cycler is open: digit 1..9 jumps directly to that
-	   thumbnail (only when the cycler modifier is currently held; we
-	   don't want a stray '4' inside another app to commit when the
-	   modifier was already released). Captured before the normal
-	   keybinding pass so the user's own digit binds (e.g. view tag N)
-	   don't fire alongside. */
+	   thumbnail when no Shift is held; with Shift, the hovered (or
+	   selected) window is moved to workspace N instead and the
+	   cycler stays open with the moved client gone. Arrow keys step
+	   the selection through the grid. All this only when the cycler
+	   modifier is held; a stray '4' inside an app after the modifier
+	   has been released must not commit. */
 	if (window_cycler.active && !locked && group == kb_group &&
 		event->state == WL_KEYBOARD_KEY_STATE_PRESSED &&
 		(mods & cycler_mod_bit)) {
-		int32_t digit = -1;
+		/* Arrow nav. */
+		bool arrow_hit = false;
 		for (i = 0; i < nsyms; i++) {
-			xkb_keysym_t s = syms[i];
-			if (s >= XKB_KEY_1 && s <= XKB_KEY_9)
-				digit = s - XKB_KEY_1;
-			else if (s >= XKB_KEY_KP_1 && s <= XKB_KEY_KP_9)
-				digit = s - XKB_KEY_KP_1;
-			if (digit >= 0)
+			switch (syms[i]) {
+			case XKB_KEY_Left:
+				window_cycler_step_grid(-1, 0);
+				arrow_hit = true;
+				break;
+			case XKB_KEY_Right:
+				window_cycler_step_grid(1, 0);
+				arrow_hit = true;
+				break;
+			case XKB_KEY_Up:
+				window_cycler_step_grid(0, -1);
+				arrow_hit = true;
+				break;
+			case XKB_KEY_Down:
+				window_cycler_step_grid(0, 1);
+				arrow_hit = true;
+				break;
+			default:
+				break;
+			}
+			if (arrow_hit)
 				break;
 		}
-		if (digit >= 0 && digit < window_cycler.count) {
-			window_cycler.index = digit;
-			window_cycler_commit();
+		if (arrow_hit) {
 			group->nsyms = 0;
 			wl_event_source_timer_update(group->key_repeat_source, 0);
 			return;
+		}
+		/* Digit detection. Use the raw evdev/X keycode rather than the
+		   keysym so the lookup is layout-independent: with Shift
+		   held on QWERTY (US) the keysym becomes `!`, `@`, ... not
+		   `1`, `2`, so a keysym-based check would silently fail and
+		   the press would leak to the normal keybinding dispatch
+		   (where the user's `Alt+Shift+1 = tag 1` bind would fire on
+		   the focused client, not the cycler target). X keycodes
+		   10..18 are digits 1..9 in the standard layout. Keypad
+		   digits go through the keysym path because they share no
+		   common keycode block across keyboards. */
+		int32_t digit = -1;
+		if (keycode >= 10 && keycode <= 18)
+			digit = keycode - 10;
+		if (digit < 0) {
+			for (i = 0; i < nsyms; i++) {
+				xkb_keysym_t s = syms[i];
+				if (s >= XKB_KEY_KP_1 && s <= XKB_KEY_KP_9) {
+					digit = s - XKB_KEY_KP_1;
+					break;
+				}
+			}
+		}
+		if (digit >= 0) {
+			if (mods & WLR_MODIFIER_SHIFT) {
+				/* Alt+Shift+N: move hovered/selected client to tag N
+				   without dismissing the cycler. Bounded to the
+				   compositor's tag count via TAGMASK. */
+				uint32_t mask = (1u << digit) & TAGMASK;
+				if (mask) {
+					int32_t tgt = window_cycler_active_target();
+					window_cycler_move_to_tag(tgt, mask);
+				}
+				group->nsyms = 0;
+				wl_event_source_timer_update(group->key_repeat_source, 0);
+				return;
+			}
+			if (digit < window_cycler.count) {
+				window_cycler.index = digit;
+				window_cycler_commit();
+				group->nsyms = 0;
+				wl_event_source_timer_update(group->key_repeat_source, 0);
+				return;
+			}
 		}
 	}
 
@@ -194,25 +253,32 @@ LEMON_HOT void keypress(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	/* While the cycler is open, restrict the keybinding dispatch to
-	   keys that are part of the cycler interaction (Tab / Shift+Tab to
-	   step). Workspace switches, layout toggles and other user binds
-	   would interfere with the held-modifier flow, so we swallow them
-	   silently. Digit jumps and Escape were already handled and
-	   returned above. */
-	bool cycler_suppress = window_cycler.active && !locked;
+	/* While the cycler is open, let normal keybindings dispatch
+	   (so the user's Alt+E spawn binds, etc. still fire) but cancel
+	   key-repeat for any non-navigation key. Without that, holding
+	   the modifier while a spawn bind is pressed would re-launch the
+	   target app on every repeat tick because keyrepeat() calls
+	   keybinding directly. Tab / Shift+Tab and the four arrow keys
+	   are the only keys allowed to repeat -- they drive the cycler
+	   selection itself. */
+	bool cycler_cancel_repeat = false;
 	for (i = 0; i < nsyms; i++) {
-		if (cycler_suppress) {
-			xkb_keysym_t s = syms[i];
-			bool is_tab =
-				s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab;
-			if (!is_tab) {
-				handled = 1;
-				continue;
-			}
-		}
 		handled =
 			keybinding(event->state, locked, mods, syms[i], keycode) || handled;
+		if (window_cycler.active && !locked) {
+			xkb_keysym_t s = syms[i];
+			bool repeatable =
+				s == XKB_KEY_Tab || s == XKB_KEY_ISO_Left_Tab ||
+				s == XKB_KEY_Left || s == XKB_KEY_Right ||
+				s == XKB_KEY_Up || s == XKB_KEY_Down;
+			if (!repeatable)
+				cycler_cancel_repeat = true;
+		}
+	}
+	if (cycler_cancel_repeat) {
+		group->nsyms = 0;
+		wl_event_source_timer_update(group->key_repeat_source, 0);
+		return;
 	}
 
 	if (event->state == WL_KEYBOARD_KEY_STATE_RELEASED) {

@@ -1,14 +1,28 @@
 /* Alt+Tab window cycler.
-   Builds a scene-tree overlay listing the focusable visible clients on
-   the active monitor: each entry is a real snapshot of the client's
-   scene subtree, recursively scaled down so the strip stays roughly
-   the size of the overview panel. The currently-selected entry is
-   wrapped in a bright border. Selection commits on Alt release
-   (driven from the keypress modifier path in lemon.c). */
+   Instead of building scaled-down thumbnails, the cycler resizes the
+   real client windows into a uniform grid (same algorithm as the
+   overview layout), then overlays a dim background + selection /
+   hover borders + numbered badges anchored to each client's grid
+   cell. The currently-selected entry is highlighted by a bright
+   border. Selection commits on the configured modifier release
+   (driven from input/keypress.h). Dragging a tile with BTN_LEFT
+   relocates it in the grid; releasing over another cell swaps the
+   two clients in the global wl_list so the tiling order is updated
+   after restore. */
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+typedef struct CyclerBackup {
+	struct wlr_box geom;
+	struct wlr_box float_geom;
+	int32_t bw;
+	bool isfloating;
+	bool isfullscreen;
+	bool ismaximizescreen;
+	bool iscustomsize;
+} CyclerBackup;
 
 static struct WindowCycler {
 	bool active;
@@ -16,15 +30,35 @@ static struct WindowCycler {
 	int32_t hover;
 	int32_t count;
 	Client **clients;
+	CyclerBackup *backup;
+	struct wlr_box *cells;
+	/* root sits on LyrFadeOut so borders/badges draw above every
+	   client. bg_tree sits on LyrBottom so the dim rect only covers
+	   the wallpaper, not the real windows we resized into the
+	   grid. */
 	struct wlr_scene_tree *root;
+	struct wlr_scene_tree *bg_tree;
 	struct wlr_scene_rect *bg;
-	struct wlr_scene_rect **borders;
-	struct wlr_scene_rect **hover_borders;
-	struct wlr_scene_rect **tiles;
-	struct wlr_scene_tree **thumbs;
+	/* Single shared white outline frame (4 thin strips: top, right,
+	   bottom, left) that follows the *active* cell. The active cell
+	   is the one under the cursor when there is a hover; otherwise
+	   the keyboard-selected index. Only one cell carries a border
+	   at any time so there is no "two highlighted cells" confusion
+	   between hover and arrow-selection. */
+	struct wlr_scene_rect *active_frame[4];
 	struct wlr_scene_buffer **badges;
 	struct wlr_buffer **badge_buffers;
 	Monitor *mon;
+	/* Drag state. drag_idx >= 0 while a tile follows the cursor. */
+	int32_t drag_idx;
+	bool drag_moved;
+	double drag_grab_dx, drag_grab_dy;
+	int32_t cell_pad;
+	/* Grid shape, recorded by compute_cells so arrow-key navigation
+	   knows the column width without re-deriving it from cell
+	   positions. */
+	int32_t grid_cols;
+	int32_t grid_rows;
 } window_cycler;
 
 typedef struct CyclerBadgeBuffer {
@@ -80,7 +114,6 @@ static struct wlr_buffer *cycler_render_badge(const char *text, int32_t size) {
 	cairo_paint(cr);
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 
-	/* Rounded dark pill background. */
 	double r = h * 0.5;
 	double pad = 1.0;
 	cairo_set_source_rgba(cr, 0.05, 0.05, 0.07, 0.92);
@@ -135,11 +168,7 @@ static struct wlr_buffer *cycler_render_badge(const char *text, int32_t size) {
    the user focuses something else. */
 static Client *cycler_raised_tile = NULL;
 
-/* Drop the cycler's promoted client back into its native layer. Mirror
-   the layer-routing used by setmaximizescreen / setfullscreen /
-   setfloating: overlay -> LyrOverlay, floating or fullscreen -> LyrTop,
-   plain tiled / maximized -> LyrTile. Safe to call when nothing is
-   raised. */
+/* Drop the cycler's promoted client back into its native layer. */
 static void cycler_drop_raised_tile(void) {
 	if (!cycler_raised_tile)
 		return;
@@ -155,186 +184,225 @@ static void cycler_drop_raised_tile(void) {
 	wlr_scene_node_reparent(&t->scene->node, layers[target_layer]);
 }
 
-/* Read the "logical" display width/height of a snapshot scene buffer.
-   Prefer the explicit dst_width/dst_height (already in logical
-   coords, set by scenefx for scaled surfaces). Fall back to the
-   underlying wlr_buffer's natural dimensions divided by output_scale
-   so HiDPI buffers (whose natural size is in pixels, e.g. 1920px for
-   a 960-wide logical client) don't end up doubled. */
-static void window_cycler_buffer_size(struct wlr_scene_buffer *buf,
-									  double output_scale, int32_t *out_w,
-									  int32_t *out_h) {
-	int32_t w = buf->dst_width;
-	int32_t h = buf->dst_height;
-	if ((w == 0 || h == 0) && buf->buffer) {
-		double s = output_scale > 0 ? output_scale : 1.0;
-		if (w == 0)
-			w = (int32_t)(buf->buffer->width / s);
-		if (h == 0)
-			h = (int32_t)(buf->buffer->height / s);
-	}
-	*out_w = w;
-	*out_h = h;
+/* Predicate matching the clients eligible for the cycler list.
+   Strict: current monitor, current tagset, not minimized, mapped. The
+   cycler is intentionally per-workspace; cross-tag jumps go through
+   overview / the tag-switch binds instead. */
+static inline bool window_cycler_eligible(Client *c, Monitor *m) {
+	return c && c->mon == m && !c->iskilling && !c->isunglobal &&
+		   !client_is_unmanaged(c) && !client_is_x11_popup(c) &&
+		   !c->isminimized && VISIBLEON(c, m);
 }
 
-/* Recursively scale a snapshot subtree by (sx, sy): each node's
-   position and any sized payload (buffer dst, rect/shadow size) is
-   multiplied by the scale factor so the rendered subtree shrinks in
-   place. Scale is applied once at every level so the tree's natural
-   relative layout is preserved. */
-static void window_cycler_scale_node(struct wlr_scene_node *node, double sx,
-									 double sy, double output_scale) {
-	if (!node)
+/* Compute grid layout for n cells inside the monitor's usable area.
+   Cells are clamped so a small client count does not stretch the
+   thumbnails to fullscreen: max cell width = 45% of monitor work
+   area, max cell height = 65%. Grid is centered after clamping. */
+static void window_cycler_compute_cells(Monitor *m) {
+	const int32_t n = window_cycler.count;
+	if (n <= 0)
 		return;
+	const int32_t gap = 28;
+	const int32_t pad = 48;
+	int32_t cols, rows;
 
-	int32_t nx = (int32_t)(node->x * sx);
-	int32_t ny = (int32_t)(node->y * sy);
-	wlr_scene_node_set_position(node, nx, ny);
-
-	switch (node->type) {
-	case WLR_SCENE_NODE_BUFFER: {
-		struct wlr_scene_buffer *buf = wlr_scene_buffer_from_node(node);
-		int32_t w = 0, h = 0;
-		window_cycler_buffer_size(buf, output_scale, &w, &h);
-		if (w > 0 && h > 0)
-			wlr_scene_buffer_set_dest_size(buf, (int32_t)(w * sx),
-										   (int32_t)(h * sy));
-		break;
-	}
-	case WLR_SCENE_NODE_RECT: {
-		struct wlr_scene_rect *rect =
-			wl_container_of(node, rect, node);
-		wlr_scene_rect_set_size(rect, (int32_t)(rect->width * sx),
-								(int32_t)(rect->height * sy));
-		break;
-	}
-	case WLR_SCENE_NODE_SHADOW: {
-		struct wlr_scene_shadow *shadow =
-			wl_container_of(node, shadow, node);
-		wlr_scene_shadow_set_size(shadow, (int32_t)(shadow->width * sx),
-								  (int32_t)(shadow->height * sy));
-		break;
-	}
-	case WLR_SCENE_NODE_TREE: {
-		struct wlr_scene_tree *tree =
-			wl_container_of(node, tree, node);
-		struct wlr_scene_node *child = NULL;
-		wl_list_for_each(child, &tree->children, link) {
-			window_cycler_scale_node(child, sx, sy, output_scale);
+	if (n == 2) {
+		cols = 2;
+		rows = 1;
+	} else {
+		for (cols = 0; cols <= n / 2; cols++) {
+			if (cols * cols >= n)
+				break;
 		}
-		break;
+		if (cols < 1)
+			cols = 1;
+		rows = (cols && (cols - 1) * cols >= n) ? cols - 1 : cols;
+		if (rows < 1)
+			rows = 1;
 	}
-	default:
-		break;
+	int32_t overcols = n % cols;
+
+	int32_t avail_w = m->w.width - 2 * pad - (cols - 1) * gap;
+	int32_t avail_h = m->w.height - 2 * pad - (rows - 1) * gap;
+	if (avail_w < cols)
+		avail_w = cols;
+	if (avail_h < rows)
+		avail_h = rows;
+	int32_t cw = avail_w / cols;
+	int32_t ch = avail_h / rows;
+
+	/* Clamp to a maximum cell size so n=2 (or any low count) does
+	   not render each thumbnail at half-screen. */
+	int32_t max_cw = (int32_t)(m->w.width * 0.45);
+	int32_t max_ch = (int32_t)(m->w.height * 0.65);
+	if (cw > max_cw)
+		cw = max_cw;
+	if (ch > max_ch)
+		ch = max_ch;
+
+	/* Center grid horizontally + vertically after clamp. */
+	int32_t total_w = cols * cw + (cols - 1) * gap;
+	int32_t total_h = rows * ch + (rows - 1) * gap;
+	int32_t origin_x = m->w.x + (m->w.width - total_w) / 2;
+	int32_t origin_y = m->w.y + (m->w.height - total_h) / 2;
+
+	int32_t dx = 0;
+	if (overcols) {
+		int32_t partial_w = overcols * cw + (overcols - 1) * gap;
+		dx = (total_w - partial_w) / 2;
+	}
+
+	for (int32_t i = 0; i < n; i++) {
+		int32_t c_idx = i % cols;
+		int32_t r_idx = i / cols;
+		int32_t x = origin_x + c_idx * (cw + gap);
+		int32_t y = origin_y + r_idx * (ch + gap);
+		if (overcols && i >= n - overcols)
+			x += dx;
+		window_cycler.cells[i] = (struct wlr_box){
+			.x = x, .y = y, .width = cw, .height = ch};
+	}
+	window_cycler.cell_pad = pad;
+	window_cycler.grid_cols = cols;
+	window_cycler.grid_rows = rows;
+}
+
+/* Position the 4 strips that make up a single frame around box b
+   with outer thickness `t`. strips[0]=top, [1]=right, [2]=bottom,
+   [3]=left. */
+static void window_cycler_position_frame(struct wlr_scene_rect *strips[4],
+										 struct wlr_box b, int32_t t) {
+	if (strips[0]) {
+		wlr_scene_rect_set_size(strips[0], b.width + 2 * t, t);
+		wlr_scene_node_set_position(&strips[0]->node, b.x - t, b.y - t);
+	}
+	if (strips[1]) {
+		wlr_scene_rect_set_size(strips[1], t, b.height);
+		wlr_scene_node_set_position(&strips[1]->node, b.x + b.width, b.y);
+	}
+	if (strips[2]) {
+		wlr_scene_rect_set_size(strips[2], b.width + 2 * t, t);
+		wlr_scene_node_set_position(&strips[2]->node, b.x - t, b.y + b.height);
+	}
+	if (strips[3]) {
+		wlr_scene_rect_set_size(strips[3], t, b.height);
+		wlr_scene_node_set_position(&strips[3]->node, b.x - t, b.y);
 	}
 }
 
-/* Highlight the entry at window_cycler.index by enabling its border
-   node and disabling the others. The hover border tracks the entry
-   under the cursor (window_cycler.hover) and is suppressed on the
-   selected tile to avoid double outlines. */
+/* Enable/disable all 4 strips of a frame at once. */
+static void window_cycler_set_frame_enabled(struct wlr_scene_rect *strips[4],
+											bool enabled) {
+	for (int32_t j = 0; j < 4; j++) {
+		if (strips[j])
+			wlr_scene_node_set_enabled(&strips[j]->node, enabled);
+	}
+}
+
+/* Move overlay nodes for client i's current cell (right now: just
+   the badge, since the active outline frame is shared and gets
+   repositioned in refresh_highlight). */
+static void window_cycler_layout_overlay(int32_t i) {
+	if (i < 0 || i >= window_cycler.count)
+		return;
+	struct wlr_box b = window_cycler.cells[i];
+	if (window_cycler.badges[i]) {
+		int32_t bw = window_cycler.badges[i]->dst_width;
+		int32_t inset = bw / 4;
+		wlr_scene_node_set_position(&window_cycler.badges[i]->node,
+									b.x + inset, b.y + inset);
+	}
+}
+
+/* Apply cell i to client i: resize the real window into the cell.
+   Flips c->ov_anim so the spring uses the smoother
+   animation_spring_overview_{tension,friction} pair instead of the
+   stiffer default move spring. */
+static void window_cycler_apply_cell(int32_t i) {
+	if (i < 0 || i >= window_cycler.count)
+		return;
+	Client *c = window_cycler.clients[i];
+	if (!c)
+		return;
+	c->ov_anim = true;
+	resize(c, window_cycler.cells[i], 0);
+}
+
+/* Restore one client from its backup and animate it back. ov_anim
+   stays on for the return trip so the restore matches the build
+   animation curve. */
+static void window_cycler_restore_client(int32_t i) {
+	if (i < 0 || i >= window_cycler.count)
+		return;
+	Client *c = window_cycler.clients[i];
+	if (!c || c->iskilling)
+		return;
+	CyclerBackup *bk = &window_cycler.backup[i];
+	c->isfloating = bk->isfloating;
+	c->isfullscreen = bk->isfullscreen;
+	c->ismaximizescreen = bk->ismaximizescreen;
+	c->iscustomsize = bk->iscustomsize;
+	c->bw = bk->bw;
+	c->float_geom = bk->float_geom;
+	c->ov_anim = true;
+	if (bk->isfullscreen || bk->ismaximizescreen) {
+		client_pending_fullscreen_state(c, bk->isfullscreen ? 1 : 0);
+		client_pending_maximized_state(c, bk->ismaximizescreen ? 1 : 0);
+	}
+	resize(c, bk->geom, 0);
+}
+
+/* Move the single shared outline frame onto whichever cell is
+   "active" (cursor-hover wins; keyboard-selected index otherwise).
+   Only one cell ever shows a frame, so there is no confusion
+   between hover and arrow position. */
 static void window_cycler_refresh_highlight(void) {
-	int32_t i;
-	for (i = 0; i < window_cycler.count; i++) {
-		if (window_cycler.borders[i]) {
-			wlr_scene_node_set_enabled(&window_cycler.borders[i]->node,
-									   i == window_cycler.index);
-		}
-		if (window_cycler.hover_borders[i]) {
-			wlr_scene_node_set_enabled(
-				&window_cycler.hover_borders[i]->node,
-				i == window_cycler.hover && i != window_cycler.index);
-		}
+	if (window_cycler.count <= 0)
+		return;
+	int32_t active = (window_cycler.hover >= 0 &&
+					  window_cycler.hover < window_cycler.count)
+						 ? window_cycler.hover
+						 : window_cycler.index;
+	if (active < 0 || active >= window_cycler.count) {
+		window_cycler_set_frame_enabled(window_cycler.active_frame, false);
+		return;
 	}
+	const int32_t border = 6;
+	window_cycler_position_frame(window_cycler.active_frame,
+								 window_cycler.cells[active], border);
+	window_cycler_set_frame_enabled(window_cycler.active_frame, true);
 }
 
-/* Hit-test the cycler tiles against (x, y) and update the hover index.
-   Cheap O(n) sweep; refresh only when the index actually changes. */
-static void window_cycler_hover_at(double x, double y) {
-	if (!window_cycler.active || !window_cycler.tiles)
-		return;
-	int32_t hit = -1;
+/* Hit-test grid cells against (x, y). Returns the cell index under
+   the cursor, or -1 when none. */
+static int32_t window_cycler_pick_at(double x, double y) {
 	for (int32_t k = 0; k < window_cycler.count; k++) {
-		struct wlr_scene_rect *tile = window_cycler.tiles[k];
-		if (!tile)
-			continue;
-		int32_t tx = tile->node.x;
-		int32_t ty = tile->node.y;
-		int32_t tw = tile->width;
-		int32_t th = tile->height;
-		if (x >= tx && x < tx + tw && y >= ty && y < ty + th) {
-			hit = k;
-			break;
+		struct wlr_box *b = &window_cycler.cells[k];
+		if (x >= b->x && x < b->x + b->width &&
+			y >= b->y && y < b->y + b->height) {
+			return k;
 		}
 	}
+	return -1;
+}
+
+/* Update the hover index from cursor coords. */
+static void window_cycler_hover_at(double x, double y) {
+	if (!window_cycler.active || !window_cycler.cells)
+		return;
+	int32_t hit = window_cycler_pick_at(x, y);
 	if (hit != window_cycler.hover) {
 		window_cycler.hover = hit;
 		window_cycler_refresh_highlight();
 	}
 }
 
-/* Tear down the cycler overlay and reset the global state. */
-static void window_cycler_destroy(void) {
-	if (!window_cycler.active)
-		return;
-	if (window_cycler.root)
-		wlr_scene_node_destroy(&window_cycler.root->node);
-	if (window_cycler.badge_buffers) {
-		for (int32_t i = 0; i < window_cycler.count; i++) {
-			if (window_cycler.badge_buffers[i])
-				wlr_buffer_drop(window_cycler.badge_buffers[i]);
-		}
-	}
-	free(window_cycler.clients);
-	free(window_cycler.borders);
-	free(window_cycler.hover_borders);
-	free(window_cycler.tiles);
-	free(window_cycler.thumbs);
-	free(window_cycler.badges);
-	free(window_cycler.badge_buffers);
-	memset(&window_cycler, 0, sizeof(window_cycler));
-	window_cycler.hover = -1;
-}
-
-/* Focus the client at window_cycler.index, then destroy the overlay.
-   If the picked client is tiled, hoist its scene subtree into LyrTop
-   so it visibly draws on top of any floating sibling -- selected
-   window always lands in the foreground regardless of tile/float
-   state. The next focusclient() call clears the promotion. */
-static void window_cycler_commit(void) {
-	if (!window_cycler.active)
-		return;
-	Client *target = NULL;
-	if (window_cycler.index >= 0 && window_cycler.index < window_cycler.count)
-		target = window_cycler.clients[window_cycler.index];
-	window_cycler_destroy();
-	if (target && client_surface(target)->mapped) {
-		cycler_drop_raised_tile();
-		focusclient(target, 1);
-		/* Always hoist into LyrTop so the picked window draws over any
-		   floating / maximized / fullscreen sibling. The next focus
-		   change snaps it back via cycler_drop_raised_tile(). Overlay
-		   clients keep their LyrOverlay parent (they already draw on
-		   top of everything). */
-		if (target->scene && !target->isoverlay) {
-			wlr_scene_node_reparent(&target->scene->node, layers[LyrTop]);
-			wlr_scene_node_raise_to_top(&target->scene->node);
-			cycler_raised_tile = target;
-		}
-		if (config.warpcursor)
-			warp_cursor(target);
-	}
-}
-
-/* Attach a "1".."9" badge in the upper-left corner of cycler tile k.
-   Idempotent w.r.t. config.cycler_show_badges and k >= 9. Stores the
-   created scene_buffer + buffer so destroy() can drop them. */
-static void cycler_attach_badge(int32_t k, int32_t tx, int32_t ty,
-								int32_t thumb_w, int32_t thumb_h) {
-	(void)thumb_w;
+/* Attach a "1".."9" badge at the upper-left corner of cell k. */
+static void cycler_attach_badge(int32_t k) {
 	if (!config.cycler_show_badges || k >= 9)
 		return;
-	int32_t badge_size = thumb_h / 6;
+	struct wlr_box b = window_cycler.cells[k];
+	int32_t badge_size = b.height / 8;
 	if (badge_size < 22)
 		badge_size = 22;
 	if (badge_size > 56)
@@ -352,27 +420,203 @@ static void cycler_attach_badge(int32_t k, int32_t tx, int32_t ty,
 	}
 	wlr_scene_buffer_set_dest_size(bnode, badge_size, badge_size);
 	int32_t inset = badge_size / 4;
-	wlr_scene_node_set_position(&bnode->node, tx + inset, ty + inset);
+	wlr_scene_node_set_position(&bnode->node, b.x + inset, b.y + inset);
 	window_cycler.badges[k] = bnode;
 	window_cycler.badge_buffers[k] = bb;
 }
 
-/* Predicate matching the clients eligible for the cycler list.
-   Strict: current monitor, current tagset, not minimized, mapped. The
-   cycler is intentionally per-workspace; cross-tag jumps go through
-   overview / the tag-switch binds instead. */
-static inline bool window_cycler_eligible(Client *c, Monitor *m) {
-	return c && c->mon == m && !c->iskilling && !c->isunglobal &&
-		   !client_is_unmanaged(c) && !client_is_x11_popup(c) &&
-		   !c->isminimized && VISIBLEON(c, m);
+/* Tear down the cycler overlay and restore every client to its
+   pre-cycler geometry/state. After this returns, window_cycler is
+   zeroed. */
+static void window_cycler_destroy(void) {
+	if (!window_cycler.active)
+		return;
+	for (int32_t i = 0; i < window_cycler.count; i++) {
+		window_cycler_restore_client(i);
+	}
+	if (window_cycler.root)
+		wlr_scene_node_destroy(&window_cycler.root->node);
+	if (window_cycler.bg_tree)
+		wlr_scene_node_destroy(&window_cycler.bg_tree->node);
+	if (window_cycler.badge_buffers) {
+		for (int32_t i = 0; i < window_cycler.count; i++) {
+			if (window_cycler.badge_buffers[i])
+				wlr_buffer_drop(window_cycler.badge_buffers[i]);
+		}
+	}
+	free(window_cycler.clients);
+	free(window_cycler.backup);
+	free(window_cycler.cells);
+	free(window_cycler.badges);
+	free(window_cycler.badge_buffers);
+	memset(&window_cycler, 0, sizeof(window_cycler));
+	window_cycler.hover = -1;
+	window_cycler.drag_idx = -1;
+	/* If a tile reorder happened, request a fresh arrange so tile
+	   layouts pick up the new client order. */
+	if (selmon)
+		arrange(selmon, false, false);
 }
 
-/* Collect the focusable visible clients on m into the cycler array and
-   build a grid overlay (background panel + one snapshot thumbnail per
-   client, with an outer rectangle drawn as the highlight border). Up
-   to 3 thumbs per row; extra clients wrap to the next row, and the
-   final partial row is centered. Returns the number of clients
-   picked. */
+/* Focus the client at window_cycler.index, restore everyone, then
+   destroy the overlay. The picked client is hoisted into LyrTop so
+   it draws over any floating sibling; the next focusclient() call
+   clears the promotion. */
+static void window_cycler_commit(void) {
+	if (!window_cycler.active)
+		return;
+	Client *target = NULL;
+	if (window_cycler.index >= 0 && window_cycler.index < window_cycler.count)
+		target = window_cycler.clients[window_cycler.index];
+	window_cycler_destroy();
+	if (target && client_surface(target)->mapped) {
+		cycler_drop_raised_tile();
+		focusclient(target, 1);
+		if (target->scene && !target->isoverlay) {
+			wlr_scene_node_reparent(&target->scene->node, layers[LyrTop]);
+			wlr_scene_node_raise_to_top(&target->scene->node);
+			cycler_raised_tile = target;
+		}
+		if (config.warpcursor)
+			warp_cursor(target);
+	}
+}
+
+/* Swap clients at indices a and b: swap their entries in
+   window_cycler.clients[] AND in the global `clients` wl_list so
+   the tile layout picks up the new order after restore. Backup
+   entries swap too so each tile restores to its own original geom.
+   Cells stay anchored to grid positions, so after swap cell a still
+   shows whatever client now sits at index a. */
+static void window_cycler_swap(int32_t a, int32_t b) {
+	if (a == b || a < 0 || b < 0 || a >= window_cycler.count ||
+		b >= window_cycler.count)
+		return;
+	Client *ca = window_cycler.clients[a];
+	Client *cb = window_cycler.clients[b];
+	if (!ca || !cb)
+		return;
+	/* Swap in the global linked list: pluck both, splice in the
+	   opposite order at their respective former neighbors. */
+	struct wl_list *prev_a = ca->link.prev;
+	struct wl_list *prev_b = cb->link.prev;
+	if (prev_a == &cb->link) {
+		/* Adjacent: a sits right after b. Move b after a. */
+		wl_list_remove(&cb->link);
+		wl_list_insert(&ca->link, &cb->link);
+	} else if (prev_b == &ca->link) {
+		/* Adjacent the other way. */
+		wl_list_remove(&ca->link);
+		wl_list_insert(&cb->link, &ca->link);
+	} else {
+		wl_list_remove(&ca->link);
+		wl_list_remove(&cb->link);
+		wl_list_insert(prev_b, &ca->link);
+		wl_list_insert(prev_a, &cb->link);
+	}
+	/* Swap our parallel arrays. */
+	window_cycler.clients[a] = cb;
+	window_cycler.clients[b] = ca;
+	CyclerBackup tmp = window_cycler.backup[a];
+	window_cycler.backup[a] = window_cycler.backup[b];
+	window_cycler.backup[b] = tmp;
+	/* Re-apply cells: each client snaps into its (possibly new)
+	   cell. */
+	window_cycler_apply_cell(a);
+	window_cycler_apply_cell(b);
+	/* index follows the originally-selected client. */
+	if (window_cycler.index == a)
+		window_cycler.index = b;
+	else if (window_cycler.index == b)
+		window_cycler.index = a;
+	window_cycler_refresh_highlight();
+}
+
+/* Begin dragging the tile under (x, y). Called from buttonpress
+   when the cycler is open. Returns true on a hit (caller swallows
+   the click). */
+static bool window_cycler_drag_begin(double x, double y) {
+	int32_t hit = window_cycler_pick_at(x, y);
+	if (hit < 0)
+		return false;
+	window_cycler.drag_idx = hit;
+	window_cycler.drag_moved = false;
+	struct wlr_box b = window_cycler.cells[hit];
+	window_cycler.drag_grab_dx = x - b.x;
+	window_cycler.drag_grab_dy = y - b.y;
+	window_cycler.index = hit;
+	window_cycler_refresh_highlight();
+	return true;
+}
+
+/* Update drag position: move the dragged client geom to follow the
+   cursor. */
+static void window_cycler_drag_motion(double x, double y) {
+	if (window_cycler.drag_idx < 0)
+		return;
+	Client *c = window_cycler.clients[window_cycler.drag_idx];
+	if (!c)
+		return;
+	struct wlr_box b = window_cycler.cells[window_cycler.drag_idx];
+	int32_t nx = (int32_t)(x - window_cycler.drag_grab_dx);
+	int32_t ny = (int32_t)(y - window_cycler.drag_grab_dy);
+	if (!window_cycler.drag_moved) {
+		/* Threshold so a normal pick (left-click without dragging)
+		   doesn't degrade into a no-op swap with itself. */
+		int32_t ddx = nx - b.x;
+		int32_t ddy = ny - b.y;
+		if (ddx * ddx + ddy * ddy < 64)
+			return;
+		window_cycler.drag_moved = true;
+		/* Hoist scene tree so the dragged window draws above the
+		   overlay borders. */
+		if (c->scene && !c->isoverlay) {
+			wlr_scene_node_reparent(&c->scene->node, layers[LyrTop]);
+			wlr_scene_node_raise_to_top(&c->scene->node);
+		}
+	}
+	struct wlr_box live = {.x = nx, .y = ny,
+						   .width = b.width, .height = b.height};
+	resize(c, live, 0);
+}
+
+/* End drag. If released over a different cell, swap; otherwise snap
+   back. Returns true if it consumed a release. */
+static bool window_cycler_drag_end(double x, double y) {
+	if (window_cycler.drag_idx < 0)
+		return false;
+	int32_t src = window_cycler.drag_idx;
+	window_cycler.drag_idx = -1;
+	Client *c = window_cycler.clients[src];
+	/* Always drop the dragged client back into LyrTile / its natural
+	   layer; commit() will hoist it again if picked. */
+	if (c && c->scene && !c->isoverlay) {
+		int32_t target_layer = LyrTile;
+		if (c->isfloating || c->isfullscreen)
+			target_layer = LyrTop;
+		wlr_scene_node_reparent(&c->scene->node, layers[target_layer]);
+	}
+	if (!window_cycler.drag_moved) {
+		/* Treat as a plain click pick. */
+		window_cycler.index = src;
+		window_cycler_commit();
+		return true;
+	}
+	int32_t dst = window_cycler_pick_at(x, y);
+	if (dst < 0 || dst == src) {
+		/* Snap back into the source cell. */
+		window_cycler_apply_cell(src);
+	} else {
+		window_cycler_swap(src, dst);
+	}
+	window_cycler.drag_moved = false;
+	return true;
+}
+
+/* Collect the focusable visible clients on m, save their state,
+   resize each into a grid cell, and build the overlay (dim
+   backdrop, per-cell selection / hover borders, numbered
+   badges). Returns the number of clients picked. */
 static int32_t window_cycler_build(Monitor *m) {
 	if (!m)
 		return 0;
@@ -387,17 +631,15 @@ static int32_t window_cycler_build(Monitor *m) {
 		return n;
 
 	window_cycler.clients = ecalloc(n, sizeof(*window_cycler.clients));
-	window_cycler.borders = ecalloc(n, sizeof(*window_cycler.borders));
-	window_cycler.hover_borders =
-		ecalloc(n, sizeof(*window_cycler.hover_borders));
-	window_cycler.tiles = ecalloc(n, sizeof(*window_cycler.tiles));
-	window_cycler.thumbs = ecalloc(n, sizeof(*window_cycler.thumbs));
+	window_cycler.backup = ecalloc(n, sizeof(*window_cycler.backup));
+	window_cycler.cells = ecalloc(n, sizeof(*window_cycler.cells));
 	window_cycler.badges = ecalloc(n, sizeof(*window_cycler.badges));
 	window_cycler.badge_buffers =
 		ecalloc(n, sizeof(*window_cycler.badge_buffers));
 	window_cycler.count = n;
 	window_cycler.mon = m;
 	window_cycler.hover = -1;
+	window_cycler.drag_idx = -1;
 
 	int32_t i = 0;
 	int32_t current_idx = 0;
@@ -405,271 +647,210 @@ static int32_t window_cycler_build(Monitor *m) {
 		if (!window_cycler_eligible(c, m))
 			continue;
 		window_cycler.clients[i] = c;
+		window_cycler.backup[i] = (CyclerBackup){
+			.geom = c->geom,
+			.float_geom = c->float_geom,
+			.bw = c->bw,
+			.isfloating = c->isfloating,
+			.isfullscreen = c->isfullscreen,
+			.ismaximizescreen = c->ismaximizescreen,
+			.iscustomsize = c->iscustomsize,
+		};
 		if (c == m->sel)
 			current_idx = i;
 		i++;
 	}
 	window_cycler.index = current_idx;
 
-	/* Grid layout: up to 3 thumbnails per row, wrap to next row when
-	   n > 3. Thumb size starts at ~32% of the monitor's shortest
-	   dimension (16:10 aspect) and shrinks uniformly if the full grid
-	   would overflow either screen axis. */
-	const int32_t per_row = 3;
-	const int32_t cols = n < per_row ? n : per_row;
-	const int32_t rows = (n + per_row - 1) / per_row;
-	const int32_t gap = 24;
-	const int32_t pad = 32;
-	const int32_t border = 6;
-	const int32_t screen_pad = 80; /* safety margin off the monitor edges */
+	window_cycler_compute_cells(m);
 
-	int32_t short_side = m->m.width < m->m.height ? m->m.width : m->m.height;
-	int32_t thumb_h = (int32_t)(short_side * 0.32);
-	int32_t thumb_w = (int32_t)(thumb_h * 16.0 / 10.0);
-
-	int32_t inner_w_budget = m->m.width - screen_pad - 2 * pad -
-							 (cols - 1) * gap;
-	int32_t inner_h_budget = m->m.height - screen_pad - 2 * pad -
-							 (rows - 1) * gap;
-	if (inner_w_budget < cols)
-		inner_w_budget = cols;
-	if (inner_h_budget < rows)
-		inner_h_budget = rows;
-	double shrink_w = (double)inner_w_budget / (cols * thumb_w);
-	double shrink_h = (double)inner_h_budget / (rows * thumb_h);
-	double shrink = shrink_w < shrink_h ? shrink_w : shrink_h;
-	if (shrink < 1.0) {
-		if (shrink < 0.15)
-			shrink = 0.15;
-		thumb_w = (int32_t)(thumb_w * shrink);
-		thumb_h = (int32_t)(thumb_h * shrink);
-	}
-
-	int32_t total_w = cols * thumb_w + (cols - 1) * gap + 2 * pad;
-	int32_t total_h = rows * thumb_h + (rows - 1) * gap + 2 * pad;
-	int32_t origin_x = m->m.x + (m->m.width - total_w) / 2;
-	int32_t origin_y = m->m.y + (m->m.height - total_h) / 2;
-
-	/* LyrFadeOut: xytonode (src/fetch/common.h) explicitly skips this
-	   layer, so pointer hit-tests can't deref our snapshot scene_buffer
-	   nodes (they are not wlr_scene_surface backed -> NULL->surface
-	   crash in wlr_scene_surface_try_from_buffer). */
+	/* LyrFadeOut: xytonode (src/fetch/common.h) explicitly skips
+	   this layer, so pointer hit-tests can't deref our overlay
+	   nodes. */
 	window_cycler.root = wlr_scene_tree_create(layers[LyrFadeOut]);
 	if (!window_cycler.root) {
 		free(window_cycler.clients);
-		free(window_cycler.borders);
-		free(window_cycler.tiles);
-		free(window_cycler.thumbs);
+		free(window_cycler.backup);
+		free(window_cycler.cells);
+		free(window_cycler.badges);
+		free(window_cycler.badge_buffers);
 		memset(&window_cycler, 0, sizeof(window_cycler));
 		return 0;
 	}
 
-	float bg_color[4] = {0.06f, 0.06f, 0.08f, 0.92f};
-	window_cycler.bg = wlr_scene_rect_create(window_cycler.root, total_w,
-											 total_h, bg_color);
-	if (window_cycler.bg)
-		wlr_scene_node_set_position(&window_cycler.bg->node, origin_x,
-									origin_y);
-
-	float tile_color[4] = {0.14f, 0.14f, 0.18f, 0.95f};
-	for (int32_t k = 0; k < n; k++) {
-		Client *cl = window_cycler.clients[k];
-		if (!cl || !cl->scene)
-			continue;
-		int32_t row = k / per_row;
-		int32_t col = k % per_row;
-		/* Center the final (possibly partial) row of thumbs. */
-		int32_t row_count = (row == rows - 1 && n % per_row)
-								? (n % per_row)
-								: cols;
-		int32_t row_w = row_count * thumb_w + (row_count - 1) * gap;
-		int32_t row_x = origin_x + pad + (cols * thumb_w + (cols - 1) * gap -
-										   row_w) / 2;
-		int32_t tx = row_x + col * (thumb_w + gap);
-		int32_t ty = origin_y + pad + row * (thumb_h + gap);
-
-		/* Outer highlight border (one per tile, only the current one is
-		   enabled). Drawn first so the thumbnail layers on top of it. */
-		window_cycler.borders[k] = wlr_scene_rect_create(
-			window_cycler.root, thumb_w + 2 * border, thumb_h + 2 * border,
-			config.focuscolor);
-		if (window_cycler.borders[k]) {
-			wlr_scene_node_set_position(&window_cycler.borders[k]->node,
-										tx - border, ty - border);
-			wlr_scene_node_set_enabled(&window_cycler.borders[k]->node,
-									   k == current_idx);
+	/* Full-monitor dim backdrop. Lives on LyrBottom so the real
+	   windows draw on top of it; only the wallpaper / bottom layers
+	   are dimmed. */
+	window_cycler.bg_tree = wlr_scene_tree_create(layers[LyrBottom]);
+	if (window_cycler.bg_tree) {
+		float bg_color[4] = {0.02f, 0.02f, 0.04f, 0.88f};
+		window_cycler.bg = wlr_scene_rect_create(
+			window_cycler.bg_tree, m->m.width, m->m.height, bg_color);
+		if (window_cycler.bg) {
+			wlr_scene_node_set_position(&window_cycler.bg->node, m->m.x,
+										m->m.y);
 		}
-
-		/* Hover border (thinner outline, only enabled for whichever tile
-		   the cursor sits over and never on the already-selected one).
-		   Drawn between the selected border and the thumbnail so the
-		   selected border still wins visually. */
-		const int32_t hb = border > 2 ? border - 2 : 2;
-		float hover_color[4] = {
-			config.bordercolor[0] * 0.6f + config.focuscolor[0] * 0.4f,
-			config.bordercolor[1] * 0.6f + config.focuscolor[1] * 0.4f,
-			config.bordercolor[2] * 0.6f + config.focuscolor[2] * 0.4f,
-			0.85f};
-		window_cycler.hover_borders[k] = wlr_scene_rect_create(
-			window_cycler.root, thumb_w + 2 * hb, thumb_h + 2 * hb,
-			hover_color);
-		if (window_cycler.hover_borders[k]) {
-			wlr_scene_node_set_position(&window_cycler.hover_borders[k]->node,
-										tx - hb, ty - hb);
-			wlr_scene_node_set_enabled(&window_cycler.hover_borders[k]->node,
-									   false);
-		}
-
-		/* Dark backdrop tile under the snapshot so transparent regions of
-		   the client still read against the strip. */
-		window_cycler.tiles[k] =
-			wlr_scene_rect_create(window_cycler.root, thumb_w, thumb_h,
-								  tile_color);
-		if (window_cycler.tiles[k])
-			wlr_scene_node_set_position(&window_cycler.tiles[k]->node, tx,
-										ty);
-
-		/* Snapshot the live client subtree. scene_node_snapshot()
-		   flattens it into one layer of WLR_SCENE_NODE_BUFFER children
-		   in absolute world coords. Find the largest buffer (the main
-		   surface) and use its rect as the anchor: subtract its origin
-		   from every child, scale by min(thumb_w / anchor_w, thumb_h /
-		   anchor_h), then disable children whose buffer rect doesn't
-		   overlap the anchor (popups / detached decorations). This
-		   beats trusting cl->geom (some apps -- xdg w/ CSD shadow,
-		   xwayland, just-mapped clients -- have a geom that doesn't
-		   match where their pixels actually live, so the strict
-		   geom-based filter dropped every child and the tile rendered
-		   grey). */
-		struct wlr_scene_tree *snap =
-			wlr_scene_tree_snapshot(&cl->scene->node, window_cycler.root);
-		if (!snap)
-			continue;
-		window_cycler.thumbs[k] = snap;
-
-		double output_scale =
-			(cl->mon && cl->mon->wlr_output)
-				? cl->mon->wlr_output->scale
-				: 1.0;
-
-		/* Pass 1: pick the largest buffer child as the anchor. That is
-		   the main surface; popups, decorations and tiny placeholders
-		   lose to it on area. Threshold is 1x1 -- some apps (Electron,
-		   Chromium with hw-overlay) commit very small main buffers
-		   while real content lives in subsurfaces, and a higher
-		   threshold ends up dropping every candidate. */
-		struct wlr_scene_node *anchor_child = NULL;
-		int32_t anchor_w = 0, anchor_h = 0;
-		int64_t anchor_area = 0;
-
-		struct wlr_scene_node *child = NULL;
-		wl_list_for_each(child, &snap->children, link) {
-			if (child->type != WLR_SCENE_NODE_BUFFER)
-				continue;
-			struct wlr_scene_buffer *buf =
-				wlr_scene_buffer_from_node(child);
-			int32_t bw = 0, bh = 0;
-			window_cycler_buffer_size(buf, output_scale, &bw, &bh);
-			if (bw <= 0 || bh <= 0)
-				continue;
-			int64_t area = (int64_t)bw * bh;
-			if (area > anchor_area) {
-				anchor_area = area;
-				anchor_child = child;
-				anchor_w = bw;
-				anchor_h = bh;
-			}
-		}
-
-		if (!anchor_child) {
-			/* Scene-tree snapshot produced no usable buffer (disabled
-			   subtree, just-mapped client, or scenefx fadeout in
-			   progress). Definitive fallback: wrap the client's main
-			   surface buffer directly. This skips the snapshot's
-			   anchor / overlap logic but always produces a thumbnail
-			   for any mapped client with a current buffer. */
-			wlr_scene_node_destroy(&snap->node);
-			window_cycler.thumbs[k] = NULL;
-			struct wlr_surface *surf = client_surface(cl);
-			struct wlr_buffer *direct =
-				(surf && surf->buffer) ? &surf->buffer->base : NULL;
-			if (!direct)
-				continue;
-			struct wlr_scene_buffer *fb =
-				wlr_scene_buffer_create(window_cycler.root, direct);
-			if (!fb)
-				continue;
-			int32_t bw = surf->current.width > 0
-							 ? surf->current.width
-							 : direct->width;
-			int32_t bh = surf->current.height > 0
-							 ? surf->current.height
-							 : direct->height;
-			if (bw <= 0)
-				bw = thumb_w;
-			if (bh <= 0)
-				bh = thumb_h;
-			double fsx = (double)thumb_w / bw;
-			double fsy = (double)thumb_h / bh;
-			double fs = fsx < fsy ? fsx : fsy;
-			int32_t dw = (int32_t)(bw * fs);
-			int32_t dh = (int32_t)(bh * fs);
-			wlr_scene_buffer_set_dest_size(fb, dw, dh);
-			wlr_scene_node_set_position(&fb->node,
-										tx + (thumb_w - dw) / 2,
-										ty + (thumb_h - dh) / 2);
-			cycler_attach_badge(k, tx, ty, thumb_w, thumb_h);
-			continue;
-		}
-
-		int32_t ox = anchor_child->x;
-		int32_t oy = anchor_child->y;
-		int32_t aw = anchor_w;
-		int32_t ah = anchor_h;
-		double sx = (double)thumb_w / aw;
-		double sy = (double)thumb_h / ah;
-		double s = sx < sy ? sx : sy;
-
-		/* Pass 2: keep children that overlap the anchor rect (popups
-		   floating fully outside are disabled). Reposition relative to
-		   the anchor origin, then scale. */
-		wl_list_for_each(child, &snap->children, link) {
-			int32_t local_x = child->x - ox;
-			int32_t local_y = child->y - oy;
-			int32_t bw = 0, bh = 0;
-			if (child->type == WLR_SCENE_NODE_BUFFER) {
-				struct wlr_scene_buffer *buf =
-					wlr_scene_buffer_from_node(child);
-				window_cycler_buffer_size(buf, output_scale, &bw, &bh);
-			}
-			bool overlaps = (bw > 0 && bh > 0 &&
-							 local_x + bw > 0 && local_y + bh > 0 &&
-							 local_x < aw && local_y < ah);
-			if (!overlaps) {
-				wlr_scene_node_set_enabled(child, false);
-				continue;
-			}
-			wlr_scene_node_set_position(child, local_x, local_y);
-			window_cycler_scale_node(child, s, s, output_scale);
-		}
-
-		/* Center the scaled snapshot inside its tile. */
-		int32_t draw_w = (int32_t)(aw * s);
-		int32_t draw_h = (int32_t)(ah * s);
-		int32_t offx = tx + (thumb_w - draw_w) / 2;
-		int32_t offy = ty + (thumb_h - draw_h) / 2;
-		wlr_scene_node_set_position(&snap->node, offx, offy);
-
-		cycler_attach_badge(k, tx, ty, thumb_w, thumb_h);
+		wlr_scene_node_raise_to_top(&window_cycler.bg_tree->node);
 	}
 
+	/* Single shared white outline frame, parked on the currently
+	   selected cell. Filled rects covering the whole cell would
+	   hide the real client window; thin outline strips draw the
+	   frame and leave the window pixels visible. Hover and arrow
+	   selection share this one frame, so only one cell ever has a
+	   border at a time. */
+	float white[4] = {1.0f, 1.0f, 1.0f, 0.95f};
+	for (int32_t j = 0; j < 4; j++) {
+		window_cycler.active_frame[j] =
+			wlr_scene_rect_create(window_cycler.root, 1, 1, white);
+	}
+	for (int32_t k = 0; k < n; k++) {
+		cycler_attach_badge(k);
+	}
+	window_cycler_refresh_highlight();
+
 	wlr_scene_node_raise_to_top(&window_cycler.root->node);
+
+	/* Resize the actual windows into their cells. */
+	for (int32_t k = 0; k < n; k++) {
+		window_cycler_apply_cell(k);
+	}
+
 	window_cycler.active = true;
 	return n;
 }
 
-/* Step the cycler selection by delta (positive = next, negative = prev),
-   building the overlay on first call. arg->i not used. */
+/* Move the selection one cell in the grid: (dx, dy) is the discrete
+   step in column / row units. Clamps to the grid edges so an arrow
+   key never wraps unexpectedly (Tab is the wrap path). */
+static int32_t window_cycler_step_grid(int32_t dx, int32_t dy) {
+	if (!window_cycler.active || window_cycler.count <= 0)
+		return 0;
+	int32_t cols = window_cycler.grid_cols > 0 ? window_cycler.grid_cols : 1;
+	int32_t cur = window_cycler.index;
+	int32_t cur_col = cur % cols;
+	int32_t cur_row = cur / cols;
+	int32_t new_col = cur_col + dx;
+	int32_t new_row = cur_row + dy;
+	if (new_col < 0)
+		new_col = 0;
+	if (new_row < 0)
+		new_row = 0;
+	int32_t cand = new_row * cols + new_col;
+	if (cand >= window_cycler.count) {
+		/* Last row may be partial: snap to the last valid index. */
+		cand = window_cycler.count - 1;
+	}
+	if (cand == window_cycler.index)
+		return 0;
+	window_cycler.index = cand;
+	window_cycler_refresh_highlight();
+	return 1;
+}
+
+/* Pick the active target for keyboard-modifier shortcuts. Hovered
+   cell wins when the cursor sits over the grid; otherwise the
+   keyboard-selected index. */
+static int32_t window_cycler_active_target(void) {
+	if (window_cycler.hover >= 0 && window_cycler.hover < window_cycler.count)
+		return window_cycler.hover;
+	return window_cycler.index;
+}
+
+/* Move the client at cycler index `idx` to the workspace mask
+   `tagmask`. The moved client is reverted to its pre-cycler state,
+   retagged, then hidden on the scene tree so it disappears
+   immediately from the current workspace -- without a full
+   arrange() that would retile the remaining clients into the
+   normal master/stack layout. The cycler arrays are compacted,
+   the grid is recomputed for the new count, all remaining cells
+   re-applied (so the surviving windows spring into the new bigger
+   grid) and the badges are re-rendered with correct numbers (a
+   compact alone would leave each badge displaying the old
+   number). Caller passes the bit mask, not a digit. */
+static void window_cycler_move_to_tag(int32_t idx, uint32_t tagmask) {
+	if (idx < 0 || idx >= window_cycler.count || !(tagmask & TAGMASK))
+		return;
+	Client *target = window_cycler.clients[idx];
+	if (!target || target->iskilling)
+		return;
+
+	/* Revert client state in place (do NOT call restore_client: that
+	   would resize() the moved window back to its original geom on
+	   the current workspace, animating it across the screen as it is
+	   simultaneously retagged -- a visual flicker. Just restore the
+	   logical state; the new tagset hides the scene node. */
+	CyclerBackup *bk = &window_cycler.backup[idx];
+	target->isfloating = bk->isfloating;
+	target->isfullscreen = bk->isfullscreen;
+	target->ismaximizescreen = bk->ismaximizescreen;
+	target->iscustomsize = bk->iscustomsize;
+	target->bw = bk->bw;
+	target->geom = bk->geom;
+	target->float_geom = bk->float_geom;
+	target->ov_anim = false;
+	if (bk->isfullscreen || bk->ismaximizescreen) {
+		client_pending_fullscreen_state(target, bk->isfullscreen ? 1 : 0);
+		client_pending_maximized_state(target, bk->ismaximizescreen ? 1 : 0);
+	}
+	target->tags = tagmask & TAGMASK;
+	target->istagswitching = 1;
+	/* Hide the moved client right now so the empty cell does not
+	   visibly remain on screen until the next arrange. arrange() at
+	   cycler exit (or when the destination workspace is viewed)
+	   will reattach to the correct layer. */
+	if (target->scene)
+		wlr_scene_node_set_enabled(&target->scene->node, false);
+
+	/* Free badge node + buffer at idx -- the rest are re-rendered
+	   below once the array is compacted, so their pixel content
+	   matches their new index. */
+	for (int32_t i = 0; i < window_cycler.count; i++) {
+		if (window_cycler.badges[i]) {
+			wlr_scene_node_destroy(&window_cycler.badges[i]->node);
+			window_cycler.badges[i] = NULL;
+		}
+		if (window_cycler.badge_buffers[i]) {
+			wlr_buffer_drop(window_cycler.badge_buffers[i]);
+			window_cycler.badge_buffers[i] = NULL;
+		}
+	}
+
+	/* Compact arrays: shift everything past idx one slot left. */
+	for (int32_t i = idx; i < window_cycler.count - 1; i++) {
+		window_cycler.clients[i] = window_cycler.clients[i + 1];
+		window_cycler.backup[i] = window_cycler.backup[i + 1];
+		window_cycler.cells[i] = window_cycler.cells[i + 1];
+	}
+	window_cycler.count--;
+	if (window_cycler.index >= window_cycler.count)
+		window_cycler.index = window_cycler.count - 1;
+	if (window_cycler.index < 0)
+		window_cycler.index = 0;
+	if (window_cycler.hover >= window_cycler.count)
+		window_cycler.hover = -1;
+
+	if (window_cycler.count <= 1 || !window_cycler.mon) {
+		/* Below two surviving windows the cycler has no point;
+		   close it and let the destroy path arrange()ing the
+		   compositor to its rest state. */
+		window_cycler_destroy();
+		return;
+	}
+
+	/* Recompute grid for the new count, re-apply cells (windows
+	   spring into the new, larger thumbnails), re-render badges
+	   with correct numbers, then refocus the highlight. */
+	window_cycler_compute_cells(window_cycler.mon);
+	for (int32_t i = 0; i < window_cycler.count; i++) {
+		window_cycler_apply_cell(i);
+		cycler_attach_badge(i);
+	}
+	window_cycler_refresh_highlight();
+}
+
+/* Step the cycler selection by delta (positive = next, negative =
+   prev), building the overlay on first call. */
 static int32_t window_cycler_step(int32_t delta) {
 	Monitor *m = selmon;
 	if (!m)

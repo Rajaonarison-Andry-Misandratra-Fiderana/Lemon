@@ -37,45 +37,23 @@ buttonpress(struct wl_listener *listener, void *data) {
 		if (locked)
 			break;
 
-		/* Window cycler eats clicks while open: left-click on a thumb
-		   picks that window and commits; right-click closes it
-		   in-place (cycler rebuilds). Click outside any thumb closes
-		   the overlay without committing. */
-		if (window_cycler.active && window_cycler.tiles) {
-			int32_t hit = -1;
-			for (int32_t k = 0; k < window_cycler.count; k++) {
-				struct wlr_scene_rect *tile = window_cycler.tiles[k];
-				if (!tile)
-					continue;
-				int32_t tx = tile->node.x;
-				int32_t ty = tile->node.y;
-				int32_t tw = tile->width;
-				int32_t th = tile->height;
-				if (cursor->x >= tx && cursor->x < tx + tw &&
-					cursor->y >= ty && cursor->y < ty + th) {
-					hit = k;
-					break;
-				}
-			}
-			/* Click outside any tile: swallow it (the overlay must
-			   only ever close on ALT release or a left-click pick) so
-			   the click can't leak through to whatever sits behind. */
+		/* Window cycler eats clicks while open. Left press begins a
+		   drag on the hit tile; release either commits (no drag) or
+		   swaps tiles. Right-click closes the hit window in place
+		   and rebuilds. Press outside any tile is swallowed (overlay
+		   must only close on modifier release or a left-pick). */
+		if (window_cycler.active && window_cycler.cells) {
+			int32_t hit = window_cycler_pick_at(cursor->x, cursor->y);
 			if (hit < 0) {
 				cursor_mode = CurNormal;
 				return;
 			}
 			if (event->button == BTN_LEFT) {
-				window_cycler.index = hit;
-				window_cycler_commit();
+				window_cycler_drag_begin(cursor->x, cursor->y);
 				cursor_mode = CurNormal;
 				return;
 			}
 			if (event->button == BTN_RIGHT) {
-				/* Right-click closes the hit window in place and
-				   rebuilds the strip from whatever is left. The
-				   overlay only goes away once the user releases ALT
-				   or left-picks a tile, so a missed selection doesn't
-				   force them to re-trigger Alt+Tab. */
 				Client *victim = window_cycler.clients[hit];
 				Monitor *m = window_cycler.mon;
 				window_cycler_destroy();
@@ -171,6 +149,16 @@ buttonpress(struct wl_listener *listener, void *data) {
 		}
 		break;
 	case WL_POINTER_BUTTON_STATE_RELEASED:
+
+		/* Cycler drag in flight: end it. Either commits (no drag
+		   distance accumulated), swaps onto another cell, or snaps
+		   back. */
+		if (window_cycler.active && window_cycler.drag_idx >= 0 &&
+			event->button == BTN_LEFT) {
+			window_cycler_drag_end(cursor->x, cursor->y);
+			cursor_mode = CurNormal;
+			return;
+		}
 
 		if (!locked && cursor_mode != CurNormal && cursor_mode != CurPressed) {
 			uint32_t release_mode = cursor_mode;

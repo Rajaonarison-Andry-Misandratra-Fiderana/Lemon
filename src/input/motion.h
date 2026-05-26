@@ -87,13 +87,18 @@ LEMON_HOT void motionnotify(uint32_t time, struct wlr_input_device *device, doub
 		wlr_cursor_move(cursor, device, dx, dy);
 		handlecursoractivity();
 
-		/* Cycler eats motion: update the hover index, then bail out
-		   before any sloppy-focus / pointer routing fires (the overlay
-		   sits on LyrFadeOut which xytonode skips, so otherwise the
-		   cursor would silently re-focus whatever is under the
-		   thumbnails). */
+		/* Cycler eats motion: drag the held tile if one is being
+		   moved, otherwise just update the hover index. Bail out
+		   before any sloppy-focus / pointer routing fires (the
+		   overlay sits on LyrFadeOut which xytonode skips, so
+		   otherwise the cursor would silently re-focus whatever sits
+		   under the grid). */
 		if (window_cycler.active) {
-			window_cycler_hover_at(cursor->x, cursor->y);
+			if (window_cycler.drag_idx >= 0) {
+				window_cycler_drag_motion(cursor->x, cursor->y);
+			} else {
+				window_cycler_hover_at(cursor->x, cursor->y);
+			}
 			return;
 		}
 
